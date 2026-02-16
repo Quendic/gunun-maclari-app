@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">sporekrani.com</domain>
+        <domain includeSubdomains="true">www.sporekrani.com</domain>
+        <domain includeSubdomains="true">img.sporekrani.com</domain>
+        <domain includeSubdomains="true">tinyurlatlas02.xyz</domain>
+        <domain includeSubdomains="true">10.0.2.2</domain>
+    </domain-config>
+</network-security-config>

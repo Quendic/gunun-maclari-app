@@ -1,0 +1,2 @@
+rootProject.name = "IPTV-Mac-Projesi"
+include ':app'
