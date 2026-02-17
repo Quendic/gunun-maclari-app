@@ -15,7 +15,10 @@ const LEAGUE_SOURCES = [
     { name: "Trendyol Süper Lig", url: "https://www.sporekrani.com/home/league/trendyol-super-lig" },
     { name: "İspanya La Liga", url: "https://www.sporekrani.com/home/league/ispanya-la-liga" },
     { name: "İngiltere Premier Lig", url: "https://www.sporekrani.com/home/league/ingiltere-premier-lig" },
-    { name: "İtalya Serie A", url: "https://www.sporekrani.com/home/league/italya-serie-a" }
+    { name: "İtalya Serie A", url: "https://www.sporekrani.com/home/league/italya-serie-a" },
+    { name: "UEFA Şampiyonlar Ligi", url: "https://www.sporekrani.com/home/league/uefa-sampiyonlar-ligi" },
+    { name: "UEFA Avrupa Ligi", url: "https://www.sporekrani.com/home/league/uefa-avrupa-ligi" },
+    { name: "UEFA Konferans Ligi", url: "https://www.sporekrani.com/home/league/uefa-avrupa-konferans-ligi" }
 ];
 
 // SERVER-SIDE CACHE (In-memory)
@@ -97,7 +100,12 @@ module.exports = async (req, res) => {
                             searchLimit++;
                         }
 
-                        if (headerText === 'BUGÜN') {
+                        // Normalize dates for comparison
+                        const todayParts = new Date().toLocaleDateString('tr-TR', { timeZone: 'Europe/Istanbul' }).split('.');
+                        const todayStr = `${todayParts[0].padStart(2, '0')}.${todayParts[1].padStart(2, '0')}.${todayParts[2]}`;
+
+                        // Check if header is "BUGÜN" or contains today's date
+                        if (headerText === 'BUGÜN' || headerText.includes(todayStr)) {
                             const text = link.innerText;
                             const timeMatch = text.match(/(\d{2}:\d{2})/);
                             if (timeMatch) {
@@ -108,7 +116,7 @@ module.exports = async (req, res) => {
 
                                 results.push({
                                     time,
-                                    match: text.replace(time, "").replace(/Bugün/gi, "").trim(),
+                                    match: text.replace(time, "").replace(/Bugün/gi, "").replace(todayStr, "").trim(),
                                     league: leagueName,
                                     channel: channels.join(', ') || "beIN Sports"
                                 });
@@ -134,7 +142,7 @@ module.exports = async (req, res) => {
         // Deduplication and Final Formatting
         const finalData = allMatches.map(m => {
             const parts = m.match.split(' - ');
-            
+
             // Clean up team names
             const cleanTeam = (name) => name ? name.split('\n')[0].replace('chevron_right', '').trim() : "";
             const cleanHome = cleanTeam(parts[0]?.trim() || m.match);

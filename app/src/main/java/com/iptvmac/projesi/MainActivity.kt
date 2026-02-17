@@ -51,13 +51,18 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainScreen(onMatchSelected: (Match) -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    val sharedPrefs = remember { context.getSharedPreferences("MatchCache", android.content.Context.MODE_PRIVATE) }
     var matches by remember { mutableStateOf<List<Match>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     val apiUrl = "http://10.0.2.2:3000/api/matches"
+    
+    // Stream Selection State
+    var showStreamDialog by remember { mutableStateOf(false) }
+    var availableStreams by remember { mutableStateOf<List<Stream>>(emptyList()) }
 
     LaunchedEffect(Unit) {
+        // Initialize Channel Manager
         withContext(Dispatchers.IO) {
+            ChannelManager.initialize(context)
             try {
                 val response = java.net.URL(apiUrl).readText()
                 val list = parseJsonResponse(response)
@@ -71,6 +76,30 @@ fun MainScreen(onMatchSelected: (Match) -> Unit) {
         }
     }
 
+    // Launch Player helper
+    fun launchPlayer(stream: Stream) {
+        val intent = Intent(context, PlayerActivity::class.java).apply {
+            putExtra("stream_url", stream.url)
+            putExtra("stream_name", stream.name)
+        }
+        context.startActivity(intent)
+    }
+
+    // Handle Match Click
+    fun handleMatchClick(match: Match) {
+        val channels = match.channel.split(",").map { it.trim() }
+        val streams = channels.flatMap { ChannelManager.findStreams(it) }
+
+        if (streams.isEmpty()) {
+            android.widget.Toast.makeText(context, "Yayın bulunamadı: ${match.channel}", android.widget.Toast.LENGTH_SHORT).show()
+        } else if (streams.size == 1) {
+            launchPlayer(streams.first())
+        } else {
+            availableStreams = streams
+            showStreamDialog = true
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0F172A))) {
         Column(modifier = Modifier.padding(32.dp)) {
             Text("IPTV MAÇLAR", style = MaterialTheme.typography.displaySmall, color = Color(0xFF00FFCC), fontWeight = FontWeight.Bold)
@@ -81,11 +110,41 @@ fun MainScreen(onMatchSelected: (Match) -> Unit) {
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(32.dp)) {
                     grouped.forEach { (league, leagueMatches) ->
                         item {
-                            MatchRow(league, leagueMatches, onMatchSelected)
+                            MatchRow(league, leagueMatches, onMatchSelected = { handleMatchClick(it) })
                         }
                     }
                 }
             }
+        }
+        
+        // Stream Selection Dialog
+        if (showStreamDialog) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { showStreamDialog = false },
+                title = { Text("Yayın Seçiniz", color = Color.White) },
+                text = {
+                    LazyColumn {
+                        items(availableStreams) { stream ->
+                            androidx.compose.material3.TextButton(
+                                onClick = {
+                                    showStreamDialog = false
+                                    launchPlayer(stream)
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("${stream.name} (${stream.quality})", color = Color(0xFF00FFCC))
+                            }
+                        }
+                    }
+                },
+                confirmButton = {},
+                dismissButton = {
+                    androidx.compose.material3.TextButton(onClick = { showStreamDialog = false }) {
+                        Text("İptal", color = Color.Gray)
+                    }
+                },
+                containerColor = Color(0xFF1E293B)
+            )
         }
     }
 }
@@ -126,21 +185,24 @@ fun MatchCard(match: Match, onClick: () -> Unit) {
                 Spacer(modifier = Modifier.height(8.dp))
                 
                 // Detailed Channel Info
-                Surface(
-                    shape = RoundedCornerShape(4.dp),
-                    colors = SurfaceDefaults.colors(
-                        containerColor = Color.White.copy(alpha = 0.1f)
-                    ),
-                    modifier = Modifier.padding(horizontal = 4.dp)
-                ) {
-                    Text(
-                        text = match.channel,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color(0xFF94A3B8),
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                        textAlign = TextAlign.Center,
-                        maxLines = 1
-                    )
+                val channels = match.channel.split(",").map { it.trim() }
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    channels.forEach { channelName ->
+                        Box(
+                            modifier = Modifier
+                                .padding(horizontal = 4.dp)
+                                .background(Color.White.copy(alpha = 0.1f), RoundedCornerShape(4.dp))
+                        ) {
+                            Text(
+                                text = channelName,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color(0xFF94A3B8),
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                textAlign = TextAlign.Center,
+                                maxLines = 1
+                            )
+                        }
+                    }
                 }
             }
             // Away

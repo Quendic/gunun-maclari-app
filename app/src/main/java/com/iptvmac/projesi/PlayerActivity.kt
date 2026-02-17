@@ -20,16 +20,9 @@ import com.google.android.exoplayer2.upstream.DefaultHttpDataSource
 
 class PlayerActivity : ComponentActivity() {
 
-    private val channelPool = mapOf(
-        "beIN SPORTS 1" to "http://tinyurlatlas02.xyz:8080/yemre.ellialtioglu894/1JZRc2V8CJ/114038",
-        "beIN SPORTS 3" to "http://tinyurlatlas02.xyz:8080/yemre.ellialtioglu894/1JZRc2V8CJ/114041",
-        "S Sport 2" to "http://tinyurlatlas02.xyz:8080/yemre.ellialtioglu894/1JZRc2V8CJ/102337"
-    )
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val match = intent.getSerializableExtra("match") as? Match
-        val streamUrl = channelPool[match?.channel] ?: ""
+        val streamUrl = intent.getStringExtra("stream_url") ?: ""
 
         setContent {
             VideoPlayerScreen(streamUrl)
@@ -43,10 +36,8 @@ fun VideoPlayerScreen(url: String) {
     
     val exoPlayer = remember {
         ExoPlayer.Builder(context).build().apply {
-            val dataSourceFactory = DefaultHttpDataSource.Factory()
-            val hlsMediaSource = HlsMediaSource.Factory(dataSourceFactory)
-                .createMediaSource(MediaItem.fromUri(Uri.parse(url)))
-            setMediaSource(hlsMediaSource)
+            val mediaItem = MediaItem.fromUri(Uri.parse(url))
+            setMediaItem(mediaItem)
             prepare()
             playWhenReady = true
         }
@@ -65,7 +56,7 @@ fun VideoPlayerScreen(url: String) {
         factory = {
             StyledPlayerView(it).apply {
                 player = exoPlayer
-                useController = false
+                useController = true // Enable controls
                 layoutParams = FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.MATCH_PARENT
