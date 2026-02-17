@@ -97,10 +97,11 @@ object ChannelManager {
             .replace("ş", "s")
             .replace("ö", "o")
             .replace("ç", "c")
+            .replace("sport", "spor") // Sport -> Spor normalization
             .replace(Regex("\\b(fhd|hd|sd|uhd|4k|hevc|1080p|720p)\\b"), "")
-            .replace("-", " ")
-            .replace(".", " ")
-            .replace(Regex("\\s+"), " ")
+            .replace("-", "")
+            .replace(".", "")
+            .replace(" ", "") // Remove all spaces for "S SPOR2" vs "S SPORT 2" matching
             .trim()
     }
 }

@@ -18,12 +18,22 @@ let memoryCache = { date: null, data: null };
 // Helper to get today's date in Turkish format
 function getTodayInfo() {
     const now = new Date();
-    const options = { timeZone: 'Europe/Istanbul' };
-    const trDate = new Intl.DateTimeFormat('tr-TR', { ...options, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+    // Istanbul time
+    const istanbulNow = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Istanbul' }));
+
+    // If before 09:00 AM, show yesterday's matches
+    const effectiveDate = new Date(istanbulNow);
+    if (istanbulNow.getHours() < 9) {
+        effectiveDate.setDate(effectiveDate.getDate() - 1);
+    }
+
+    const trDate = new Intl.DateTimeFormat('tr-TR', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(effectiveDate);
     const [d, m, y] = trDate.split('.');
     const isoToday = `${y}-${m}-${d}`;
+
     const months = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
-    const trDayMonth = `${parseInt(d)} ${months[now.getMonth()]}`;
+    const trDayMonth = `${parseInt(d)} ${months[effectiveDate.getMonth()]}`;
+
     return { trDate, isoToday, trDayMonth };
 }
 
