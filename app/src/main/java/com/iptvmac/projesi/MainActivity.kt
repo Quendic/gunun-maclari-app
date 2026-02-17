@@ -53,7 +53,7 @@ fun MainScreen(onMatchSelected: (Match) -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var matches by remember { mutableStateOf<List<Match>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
-    val apiUrl = "http://10.0.2.2:3000/api/matches"
+    val apiUrl = "http://89.144.10.224:3000/api/matches"
     
     // Stream Selection State
     var showStreamDialog by remember { mutableStateOf(false) }
@@ -221,7 +221,17 @@ private fun parseJsonResponse(jsonString: String): List<Match> {
         val arr = org.json.JSONArray(jsonString)
         for (i in 0 until arr.length()) {
             val obj = arr.getJSONObject(i)
-            list.add(Match(i.toString(), obj.optString("league"), obj.optString("home"), obj.optString("away"), obj.optString("time"), obj.optString("channel"), obj.optBoolean("isLive")))
+            list.add(Match(
+                id = i.toString(),
+                league = obj.optString("league"),
+                homeTeam = obj.optString("home"),
+                awayTeam = obj.optString("away"),
+                time = obj.optString("time"),
+                channel = obj.optString("channel"),
+                isLive = obj.optBoolean("isLive"),
+                homeLogo = obj.optString("homeLogo"),
+                awayLogo = obj.optString("awayLogo")
+            ))
         }
     } catch (e: Exception) {}
     return list

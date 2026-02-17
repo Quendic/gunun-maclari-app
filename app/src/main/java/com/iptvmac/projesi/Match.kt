@@ -9,10 +9,12 @@ data class Match(
     val awayTeam: String,
     val time: String,
     val channel: String,
-    val isLive: Boolean = false
+    val isLive: Boolean = false,
+    val homeLogo: String? = null,
+    val awayLogo: String? = null
 ) : Serializable {
-    val homeLogoUrl: String get() = LogoManager.getLogoUrl(homeTeam, league)
-    val awayLogoUrl: String get() = LogoManager.getLogoUrl(awayTeam, league)
+    val homeLogoUrl: String get() = if (!homeLogo.isNullOrEmpty()) homeLogo else LogoManager.getLogoUrl(homeTeam, league)
+    val awayLogoUrl: String get() = if (!awayLogo.isNullOrEmpty()) awayLogo else LogoManager.getLogoUrl(awayTeam, league)
 }
 
 object LogoManager {

@@ -1,182 +1,201 @@
-const isVercel = process.env.VERCEL === '1';
+const axios = require('axios');
+const cheerio = require('cheerio');
+const puppeteer = require('puppeteer');
 
-// Conditional requirements
-let chromium = null;
-let puppeteer = null;
-
-if (isVercel) {
-    chromium = require('@sparticuz/chromium');
-    puppeteer = require('puppeteer-core');
-} else {
-    puppeteer = require('puppeteer');
-}
-
-const LEAGUE_SOURCES = [
-    { name: "Trendyol Süper Lig", url: "https://www.sporekrani.com/home/league/trendyol-super-lig" },
-    { name: "İspanya La Liga", url: "https://www.sporekrani.com/home/league/ispanya-la-liga" },
-    { name: "İngiltere Premier Lig", url: "https://www.sporekrani.com/home/league/ingiltere-premier-lig" },
-    { name: "İtalya Serie A", url: "https://www.sporekrani.com/home/league/italya-serie-a" },
-    { name: "UEFA Şampiyonlar Ligi", url: "https://www.sporekrani.com/home/league/uefa-sampiyonlar-ligi" },
-    { name: "UEFA Avrupa Ligi", url: "https://www.sporekrani.com/home/league/uefa-avrupa-ligi" },
-    { name: "UEFA Konferans Ligi", url: "https://www.sporekrani.com/home/league/uefa-avrupa-konferans-ligi" }
+const TARGET_LEAGUES = [
+    "Süper Lig", "Premier Lig", "La Liga", "Serie A",
+    "UEFA Şampiyonlar Ligi", "UEFA Avrupa Ligi", "UEFA Konferans Ligi",
+    "Premier League", "Champions League", "Europa League", "Conference League"
 ];
 
-// SERVER-SIDE CACHE (In-memory)
-let memoryCache = {
-    date: null,
-    data: null
+const SOURCES = {
+    MACREHBERI: "https://www.macrehberi.com/spor/futbol",
+    LIVESOCCER: "https://www.livesoccertv.com/tr/"
 };
 
-module.exports = async (req, res) => {
-    // CORS Headers
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Content-Type', 'application/json');
+let memoryCache = { date: null, data: null };
 
-    // Calculate Today's Date (TR Time)
-    const today = new Date().toLocaleDateString('tr-TR', { timeZone: 'Europe/Istanbul' });
+// Helper to get today's date in Turkish format
+function getTodayInfo() {
+    const now = new Date();
+    const options = { timeZone: 'Europe/Istanbul' };
+    const trDate = new Intl.DateTimeFormat('tr-TR', { ...options, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+    const [d, m, y] = trDate.split('.');
+    const isoToday = `${y}-${m}-${d}`;
+    const months = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
+    const trDayMonth = `${parseInt(d)} ${months[now.getMonth()]}`;
+    return { trDate, isoToday, trDayMonth };
+}
 
-    // 1. CHECK SERVER CACHE
-    if (memoryCache.date === today && memoryCache.data) {
-        console.log(`[CACHE HIT] Returning matches for ${today} from memory.`);
-        return res.status(200).json(memoryCache.data);
-    }
-
-    console.log(`[CACHE MISS] Fetching fresh data for ${today}...`);
-
-    let browser = null;
+async function scrapeMacRehberi() {
+    console.log("[SOURCES] Trying MacRehberi...");
+    const { isoToday } = getTodayInfo();
     try {
-        const launchOptions = isVercel ? {
-            args: [...chromium.args, '--no-sandbox', '--disable-setuid-sandbox'],
-            defaultViewport: chromium.defaultViewport,
-            executablePath: await chromium.executablePath(),
-            headless: chromium.headless,
-            ignoreHTTPSErrors: true,
-        } : {
-            headless: "new",
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
-        };
+        const response = await axios.get(SOURCES.MACREHBERI, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36' },
+            timeout: 10000
+        });
+        const $ = cheerio.load(response.data);
+        const scripts = $('script[type="application/ld+json"]');
+        const matches = [];
 
-        browser = await puppeteer.launch(launchOptions);
-
-        const scrapeLeague = async (source) => {
-            const page = await browser.newPage();
-            // TURBO: Block images, CSS, and Fonts
-            await page.setRequestInterception(true);
-            page.on('request', (req) => {
-                if (['image', 'stylesheet', 'font', 'media'].includes(req.resourceType())) {
-                    req.abort();
-                } else {
-                    req.continue();
-                }
-            });
-
-            await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
-
+        scripts.each((i, el) => {
             try {
-                // Wait logic: 'domcontentloaded' is much faster than 'networkidle2'
-                await page.goto(source.url, { waitUntil: 'domcontentloaded', timeout: 15000 });
+                const json = JSON.parse($(el).text());
+                const items = Array.isArray(json) ? json : [json];
+                items.forEach(item => {
+                    if (item['@type'] === 'BroadcastEvent' && item.broadcastOfEvent) {
+                        const event = item.broadcastOfEvent;
+                        if (event.startDate && event.startDate.startsWith(isoToday)) {
+                            const fullTitle = item.name || "";
 
-                return await page.evaluate((leagueName) => {
-                    const results = [];
-                    const matchLinks = document.querySelectorAll('a[href*="/home/match/"]');
+                            // Blacklist for Women/Youth/AFC etc. (Case-insensitive check)
+                            const blacklist = ['kadin', 'kadın', 'bayan', 'women', 'gençlik', 'youth', 'u19', 'u21', 'u17', 'afc', 'asya'];
+                            const titleLower = fullTitle.toLowerCase();
+                            const isExcluded = blacklist.some(k => titleLower.includes(k));
 
-                    matchLinks.forEach(link => {
-                        let tempEl = link;
-                        let headerText = "";
-                        let searchLimit = 0;
+                            const matchedLeague = !isExcluded ? TARGET_LEAGUES.find(t => fullTitle.includes(t)) : null;
 
-                        while (tempEl && searchLimit < 30) {
-                            let sibling = tempEl.previousElementSibling;
-                            while (sibling) {
-                                const siblingText = sibling.innerText ? sibling.innerText.trim().toUpperCase() : "";
-                                if (siblingText === 'BUGÜN' || siblingText === 'YARIN' || /\d{2}\.\d{2}\.\d{4}/.test(siblingText)) {
-                                    headerText = siblingText;
-                                    break;
+                            if (matchedLeague) {
+                                // Extract cleaner league name for exhibit
+                                let displayLeague = matchedLeague;
+                                const awayName = event.awayTeam ? event.awayTeam.name : "";
+                                if (awayName) {
+                                    const leagueRegex = new RegExp(`${awayName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s+(.*?)\\s+maçı`);
+                                    const leagueMatch = fullTitle.match(leagueRegex);
+                                    if (leagueMatch && leagueMatch[1]) {
+                                        displayLeague = leagueMatch[1].trim();
+                                    }
                                 }
-                                sibling = sibling.previousElementSibling;
-                            }
-                            if (headerText) break;
-                            tempEl = tempEl.parentElement;
-                            searchLimit++;
-                        }
 
-                        // Normalize dates for comparison
-                        const todayParts = new Date().toLocaleDateString('tr-TR', { timeZone: 'Europe/Istanbul' }).split('.');
-                        const todayStr = `${todayParts[0].padStart(2, '0')}.${todayParts[1].padStart(2, '0')}.${todayParts[2]}`;
+                                // Extract channels - Improved logic
+                                let channels = "";
+                                if (item.recordedAt && Array.isArray(item.recordedAt)) {
+                                    // Flatten and map names from potential nested arrays
+                                    channels = item.recordedAt.flat(2)
+                                        .filter(c => c && c.name)
+                                        .map(c => c.name.trim())
+                                        .join(', ');
+                                }
 
-                        // Check if header is "BUGÜN" or contains today's date
-                        if (headerText === 'BUGÜN' || headerText.includes(todayStr)) {
-                            const text = link.innerText;
-                            const timeMatch = text.match(/(\d{2}:\d{2})/);
-                            if (timeMatch) {
-                                const time = timeMatch[1];
-                                const container = link.closest('.match-box') || link.parentElement;
-                                const logos = container.querySelectorAll('img');
-                                const channels = Array.from(logos).map(i => i.alt || i.title).filter(t => t && !t.includes('logo'));
+                                // Fallback: Extract from fullTitle if recordedAt is empty
+                                if (!channels && fullTitle.includes('kanal')) {
+                                    const channelMatch = fullTitle.match(/maçı,\s(.*)\skanal/);
+                                    if (channelMatch && channelMatch[1]) {
+                                        channels = channelMatch[1].trim();
+                                    }
+                                }
 
-                                results.push({
-                                    time,
-                                    match: text.replace(time, "").replace(/Bugün/gi, "").replace(todayStr, "").trim(),
-                                    league: leagueName,
-                                    channel: channels.join(', ') || "beIN Sports"
+                                if (!channels) channels = "Yayın Yok";
+
+                                matches.push({
+                                    time: event.startDate.split('T')[1].substring(0, 5),
+                                    home: event.homeTeam ? event.homeTeam.name : "Ev Sahibi",
+                                    away: event.awayTeam ? event.awayTeam.name : "Deplasman",
+                                    homeLogo: event.homeTeam ? event.homeTeam.logo : null,
+                                    awayLogo: event.awayTeam ? event.awayTeam.logo : null,
+                                    league: displayLeague,
+                                    channel: channels,
+                                    isLive: item.isLiveBroadcast === true
                                 });
                             }
                         }
-                    });
-                    return results;
-                }, source.name);
-            } catch (e) {
-                console.error(`Error scraping ${source.name}:`, e.message);
-                return [];
-            } finally {
-                await page.close();
-            }
-        };
-
-        // Execute all in parallel
-        const resultsArray = await Promise.all(LEAGUE_SOURCES.map(source => scrapeLeague(source)));
-        const allMatches = resultsArray.flat();
-
-        await browser.close();
-
-        // Deduplication and Final Formatting
-        const finalData = allMatches.map(m => {
-            const parts = m.match.split(' - ');
-
-            // Clean up team names
-            const cleanTeam = (name) => name ? name.split('\n')[0].replace('chevron_right', '').trim() : "";
-            const cleanHome = cleanTeam(parts[0]?.trim() || m.match);
-            const cleanAway = cleanTeam(parts[1]?.trim() || "");
-
-            // Simple safer channel cleaning
-            let channels = [];
-            if (m.channel) {
-                channels = m.channel.split(',')
-                    .map(c => c.trim())
-                    .filter((c, index, self) => c && c.toLowerCase() !== 'futbol' && c.toLowerCase() !== 'logo' && self.indexOf(c) === index);
-            }
-            const cleanedChannel = channels.join(', ') || "Yayın Yok";
-
-            return {
-                time: m.time,
-                home: cleanHome,
-                away: cleanAway,
-                league: m.league,
-                channel: cleanedChannel,
-                isLive: m.match.toLowerCase().includes('canlı')
-            };
-        }).filter((v, i, a) => a.findIndex(t => (t.home === v.home && t.time === v.time)) === i);
-
-        // 2. UPDATE SERVER CACHE
-        memoryCache = {
-            date: today,
-            data: finalData
-        };
-
-        res.status(200).json(finalData);
-
-    } catch (error) {
-        if (browser) await browser.close();
-        res.status(500).json({ error: error.message });
+                    }
+                });
+            } catch (e) { }
+        });
+        return matches;
+    } catch (e) {
+        console.error("MacRehberi Axial Fail:", e.message);
+        return [];
     }
+}
+
+async function scrapeLiveSoccerTV(browser) {
+    console.log("[SOURCES] Trying LiveSoccerTV with Puppeteer...");
+    const { trDayMonth } = getTodayInfo();
+    try {
+        const page = await browser.newPage();
+        await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36");
+        await page.goto(SOURCES.LIVESOCCER, { waitUntil: 'domcontentloaded', timeout: 30000 });
+
+        const matches = await page.evaluate((targets, todayStr) => {
+            const results = [];
+            let currentComp = "";
+            let currentDate = "";
+            const rows = Array.from(document.querySelectorAll('tr'));
+
+            rows.forEach(row => {
+                if (row.className.includes('date') || (row.cells.length === 1 && row.cells[0].className === 'date')) {
+                    currentDate = row.innerText.trim();
+                } else if (row.querySelector('td.competition')) {
+                    currentComp = row.innerText.trim();
+                } else if (row.className.includes('matchrow')) {
+                    const isToday = currentDate.includes(todayStr) || currentDate.toLowerCase().includes('bugün');
+                    const isWomenComp = currentComp.toLowerCase().includes('kadın') ||
+                        currentComp.toLowerCase().includes('kadınlar') ||
+                        currentComp.toLowerCase().includes('afc') ||
+                        currentComp.toLowerCase().includes('asya');
+                    const leagueMatch = !isWomenComp ? targets.find(t => currentComp.includes(t)) : null;
+
+                    if (isToday && leagueMatch) {
+                        const cells = row.cells;
+                        const matchText = cells[2] ? cells[2].innerText.trim() : "";
+                        const teams = matchText.split(/\s\d+\s-\s\d+\s|\svs\s|\s-\s/);
+                        results.push({
+                            time: cells[1] ? cells[1].innerText.trim() : "",
+                            home: teams[0] ? teams[0].trim() : matchText,
+                            away: teams[1] ? teams[1].trim() : "",
+                            league: leagueMatch,
+                            channel: cells[3] ? cells[3].innerText.trim() : "Yayın Yok",
+                            isLive: row.className.includes('livematch')
+                        });
+                    }
+                }
+            });
+            return results;
+        }, TARGET_LEAGUES, trDayMonth);
+        await page.close();
+        return matches;
+    } catch (e) {
+        console.error("LiveSoccer Puppeteer Fail:", e.message);
+        return [];
+    }
+}
+
+module.exports = async (req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Content-Type', 'application/json');
+
+    const { trDate } = getTodayInfo();
+    if (memoryCache.date === trDate && memoryCache.data) {
+        return res.status(200).json(memoryCache.data);
+    }
+
+    let allMatches = [];
+
+    // 1. Try MacRehberi (Fastest)
+    allMatches = await scrapeMacRehberi();
+
+    // 2. If nothing found or to merge data, try LiveSoccer (Fallback/Backup)
+    if (allMatches.length < 5) {
+        let browser = null;
+        try {
+            browser = await puppeteer.launch({ headless: "new", args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'] });
+            const liveMatches = await scrapeLiveSoccerTV(browser);
+            allMatches = [...allMatches, ...liveMatches];
+        } catch (e) {
+            console.error("Browser Launch Fail:", e.message);
+        } finally {
+            if (browser) await browser.close();
+        }
+    }
+
+    // Deduplicate by home team and time
+    const finalData = allMatches.filter((v, i, a) =>
+        a.findIndex(t => (t.home === v.home && t.time === v.time)) === i
+    );
+
+    memoryCache = { date: trDate, data: finalData };
+    res.status(200).json(finalData);
 };
