@@ -3,7 +3,7 @@
     <!-- Base application theme. -->
     <style name="Theme.App" parent="android:Theme.DeviceDefault.NoActionBar">
         <!-- Customize your theme here. -->
-        <item name="android:windowBackground">@color/bg_dark</item>
+        <item name="android:windowBackground">@color/bg_navy_deep</item>
     </style>
 
     <style name="Theme.App.FullScreen" parent="Theme.App">
