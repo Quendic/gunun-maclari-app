@@ -7,10 +7,11 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.tv.foundation.lazy.list.*
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.tv.foundation.PivotOffsets
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -154,7 +155,7 @@ fun MainScreen() {
         }
     }
 
-    val lazyListState = rememberLazyListState()
+    val tvLazyListState = rememberTvLazyListState()
 
     Box(
         modifier = Modifier
@@ -168,37 +169,22 @@ fun MainScreen() {
         val grouped = remember(matches) { matches.groupBy { it.league } }
         val lastLeagueIndex = remember(grouped) { grouped.size - 1 }
         
-        LazyColumn(
-            state = lazyListState,
+        TvLazyColumn(
+            state = tvLazyListState,
             modifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer(clip = false) // Allow scaled items to bleed over boundaries
+                .graphicsLayer(clip = false)
                 .onPreviewKeyEvent { event ->
-                    val isKeyTypeDown = event.type == KeyEventType.KeyDown
-                    val keyCode = event.nativeKeyEvent.keyCode
-                    
-                    // Prevent exiting when pressing UP at the very top
-                    if (isKeyTypeDown && keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP) {
-                        if (lazyListState.firstVisibleItemIndex == 0 && lazyListState.firstVisibleItemScrollOffset <= 0) {
-                            return@onPreviewKeyEvent true // Consume and do nothing
-                        }
-                    }
-                    
-                    // Prevent exiting when pressing DOWN at the very bottom
-                    if (isKeyTypeDown && keyCode == android.view.KeyEvent.KEYCODE_DPAD_DOWN) {
-                        // Check if we are at the last league row
-                        // (Header is index 0, so last row is index grouped.size)
-                        if (lazyListState.firstVisibleItemIndex >= (grouped.size)) {
-                            // If we can't scroll further down, trap focus
-                            if (!lazyListState.canScrollForward) {
-                                return@onPreviewKeyEvent true
-                            }
+                    if (event.type == KeyEventType.KeyDown && event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP) {
+                        if (tvLazyListState.firstVisibleItemIndex == 0 && tvLazyListState.firstVisibleItemScrollOffset <= 0) {
+                            return@onPreviewKeyEvent true
                         }
                     }
                     false
                 },
-            verticalArrangement = Arrangement.spacedBy(32.dp),
-            contentPadding = PaddingValues(start = 58.dp, end = 58.dp, top = 60.dp, bottom = 120.dp)
+            verticalArrangement = Arrangement.spacedBy(48.dp),
+            contentPadding = PaddingValues(start = 58.dp, end = 58.dp, top = 60.dp, bottom = 150.dp),
+            pivotOffsets = PivotOffsets(parentFraction = 0.5f)
         ) {
             item(key = "header") {
                 MainHeader()
@@ -214,9 +200,10 @@ fun MainScreen() {
                                     .background(Color.White.copy(alpha = 0.05f), RoundedCornerShape(4.dp))
                             )
                             Spacer(modifier = Modifier.height(20.dp))
-                            LazyRow(
+                            TvLazyRow(
                                 horizontalArrangement = Arrangement.spacedBy(32.dp),
-                                contentPadding = PaddingValues(vertical = 20.dp)
+                                contentPadding = PaddingValues(vertical = 40.dp),
+                                pivotOffsets = PivotOffsets(parentFraction = 0.5f)
                             ) {
                                 items(3, key = { "shimmer_$it" }) { ShimmerMatchCard() }
                             }
@@ -231,7 +218,7 @@ fun MainScreen() {
                             matches = leagueMatches, 
                             isFirstRow = index == 0,
                             onMatchSelected = { handleMatchClick(it) },
-                            onScrollToHeader = { scope.launch { lazyListState.animateScrollToItem(0) } }
+                            onScrollToHeader = { scope.launch { tvLazyListState.animateScrollToItem(0) } }
                         )
                     }
                 }
@@ -404,31 +391,24 @@ fun MatchRow(
             modifier = Modifier.padding(bottom = 20.dp),
             fontWeight = FontWeight.Bold
         )
-        LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(28.dp),
-            contentPadding = PaddingValues(horizontal = 32.dp, vertical = 32.dp),
+        TvLazyRow(
+            horizontalArrangement = Arrangement.spacedBy(32.dp),
+            contentPadding = PaddingValues(horizontal = 48.dp, vertical = 20.dp),
+            pivotOffsets = PivotOffsets(parentFraction = 0.5f),
             modifier = Modifier
-                .graphicsLayer(clip = false)
-                .focusGroup()
-                .focusProperties {
-                    enter = { firstItemFocusRequester }
-                }
+                .fillMaxWidth()
                 .onPreviewKeyEvent { event ->
-                    if (isFirstRow && 
-                        event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP) {
-                        if (event.type == KeyEventType.KeyDown) {
-                            onScrollToHeader()
-                        }
+                    if (isFirstRow && event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP) {
+                        if (event.type == KeyEventType.KeyDown) onScrollToHeader()
                         return@onPreviewKeyEvent true
                     }
                     false
                 }
         ) {
-            itemsIndexed(matches, key = { _, match -> match.id }) { index, match ->
+            items(matches, key = { it.id }) { match ->
                 MatchCard(
                     match = match, 
-                    onClick = { onMatchSelected(match) },
-                    modifier = if (index == 0) Modifier.focusRequester(firstItemFocusRequester) else Modifier
+                    onClick = { onMatchSelected(match) }
                 )
             }
         }
@@ -438,7 +418,6 @@ fun MatchRow(
 @OptIn(ExperimentalTvMaterial3Api::class, ExperimentalGlideComposeApi::class)
 @Composable
 fun MatchCard(match: Match, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    // Optimized: Wrapped calculations in remember to avoid redundant processing on every frame
     val channels = remember(match.channel) {
         match.channel.split(",").map { it.trim() }
             .filter { ChannelManager.findStreams(it).isNotEmpty() }
@@ -447,22 +426,21 @@ fun MatchCard(match: Match, onClick: () -> Unit, modifier: Modifier = Modifier) 
 
     Surface(
         onClick = onClick,
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(16.dp)),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.1f),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = Color(0xFF1E293B),
             focusedContainerColor = Color(0xFF334155)
         ),
         border = ClickableSurfaceDefaults.border(
             focusedBorder = Border(
-                border = BorderStroke(3.dp, Color(0xFF38BDF8)),
-                shape = RoundedCornerShape(16.dp)
+                border = BorderStroke(2.5.dp, Color(0xFF38BDF8)),
+                shape = RoundedCornerShape(12.dp)
             )
         ),
         modifier = modifier
-            .padding(12.dp) // Increased padding to give headroom for scaling (1.08f)
-            .width(270.dp)
-            .height(128.dp)
+            .width(260.dp)
+            .height(130.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxSize().padding(12.dp),
