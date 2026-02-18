@@ -126,7 +126,7 @@ fun MainScreen() {
                 )
             )
     ) {
-        val grouped = matches.groupBy { it.league }
+        val grouped = remember(matches) { matches.groupBy { it.league } }
         
         LazyColumn(
             state = lazyListState,
@@ -134,13 +134,13 @@ fun MainScreen() {
             verticalArrangement = Arrangement.spacedBy(48.dp),
             contentPadding = PaddingValues(horizontal = 48.dp, vertical = 60.dp)
         ) {
-            item {
+            item(key = "header") {
                 MainHeader()
             }
 
             if (isLoading && matches.isEmpty()) {
-                repeat(3) {
-                    item {
+                repeat(3) { rowIndex ->
+                    item(key = "shimmer_row_$rowIndex") {
                         Column {
                             Box(
                                 modifier = Modifier
@@ -152,14 +152,14 @@ fun MainScreen() {
                                 horizontalArrangement = Arrangement.spacedBy(32.dp),
                                 contentPadding = PaddingValues(vertical = 20.dp)
                             ) {
-                                items(3) { ShimmerMatchCard() }
+                                items(3, key = { "shimmer_$it" }) { ShimmerMatchCard() }
                             }
                         }
                     }
                 }
             } else {
                 grouped.entries.forEachIndexed { index, (league, leagueMatches) ->
-                    item {
+                    item(key = "league_$league") {
                         MatchRow(
                             title = league, 
                             matches = leagueMatches, 
@@ -277,7 +277,7 @@ fun MatchRow(
                     false
                 }
         ) {
-            itemsIndexed(matches) { index, match ->
+            itemsIndexed(matches, key = { _, match -> match.id }) { index, match ->
                 MatchCard(
                     match = match, 
                     onClick = { onMatchSelected(match) },
@@ -291,59 +291,61 @@ fun MatchRow(
 @OptIn(ExperimentalTvMaterial3Api::class, ExperimentalGlideComposeApi::class)
 @Composable
 fun MatchCard(match: Match, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    val infiniteTransition = rememberInfiniteTransition()
-    val pulseAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.3f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1000, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        )
-    )
+    // Optimized: Wrapped calculations in remember to avoid redundant processing on every frame
+    val channels = remember(match.channel) {
+        match.channel.split(",").map { it.trim() }
+            .filter { ChannelManager.findStreams(it).isNotEmpty() }
+            .take(2)
+    }
 
     Surface(
         onClick = onClick,
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(20.dp)),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(16.dp)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = Color(0xFF1E293B),
             focusedContainerColor = Color(0xFF334155)
         ),
         border = ClickableSurfaceDefaults.border(
             focusedBorder = Border(
-                border = BorderStroke(2.5.dp, Color(0xFF38BDF8)),
-                shape = RoundedCornerShape(20.dp)
+                border = BorderStroke(2.dp, Color(0xFF38BDF8)),
+                shape = RoundedCornerShape(16.dp)
             )
         ),
-        modifier = modifier.width(360.dp).height(170.dp)
+        modifier = modifier.width(270.dp).height(128.dp)
     ) {
         Row(
-            modifier = Modifier.fillMaxSize().padding(16.dp),
+            modifier = Modifier.fillMaxSize().padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Home Team
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
                 Box(
                     modifier = Modifier
-                        .size(68.dp)
-                        .background(Color.White.copy(alpha = 0.04f), RoundedCornerShape(16.dp))
-                        .padding(10.dp)
+                        .size(50.dp)
+                        .background(Color(0xFF262F3F), RoundedCornerShape(12.dp))
+                        .padding(6.dp)
                 ) {
                     GlideImage(
                         model = match.homeLogoUrl,
                         contentDescription = null,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Fit
-                    )
+                    ) {
+                        it.override(100, 100) // Lower resolution for TV GPU
+                          .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
+                          .dontAnimate()
+                    }
                 }
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(6.dp))
                 Text(
                     text = match.homeTeam,
-                    style = MaterialTheme.typography.labelLarge,
+                    style = MaterialTheme.typography.labelMedium,
                     color = Color.White,
                     maxLines = 1,
                     textAlign = TextAlign.Center,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 11.sp
                 )
             }
 
@@ -351,46 +353,44 @@ fun MatchCard(match: Match, onClick: () -> Unit, modifier: Modifier = Modifier) 
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1.3f)) {
                 Box(
                     modifier = Modifier
-                        .background(Color.Black.copy(alpha = 0.3f), RoundedCornerShape(10.dp))
-                        .padding(horizontal = 14.dp, vertical = 6.dp)
+                        .background(Color(0xFF0F172A), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 10.dp, vertical = 4.dp)
                 ) {
                     Text(
                         text = match.time,
-                        style = MaterialTheme.typography.headlineLarge,
+                        style = MaterialTheme.typography.titleLarge,
                         color = Color(0xFF38BDF8),
-                        fontWeight = FontWeight.Black
+                        fontWeight = FontWeight.Black,
+                        fontSize = 18.sp
                     )
                 }
                 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(6.dp))
                 
                 Text(
                     text = "VS", 
                     color = Color(0xFF64748B), 
                     style = MaterialTheme.typography.labelSmall, 
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 9.sp
                 )
                 
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(10.dp))
                 
-                // Channel Badges - Only show available ones
-                val channels = match.channel.split(",").map { it.trim() }
-                    .filter { ChannelManager.findStreams(it).isNotEmpty() }
-                    .take(2)
-                
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     channels.forEach { channelName ->
                         Box(
                             modifier = Modifier
-                                .background(Color.White.copy(alpha = 0.08f), RoundedCornerShape(6.dp))
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                                .background(Color(0xFF262F3F), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 6.dp, vertical = 3.dp)
                         ) {
                             Text(
-                                text = channelName,
+                                text = channelName.uppercase(),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = Color(0xFF94A3B8),
                                 maxLines = 1,
-                                fontWeight = FontWeight.Medium
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 8.sp
                             )
                         }
                     }
@@ -401,25 +401,30 @@ fun MatchCard(match: Match, onClick: () -> Unit, modifier: Modifier = Modifier) 
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
                 Box(
                     modifier = Modifier
-                        .size(68.dp)
-                        .background(Color.White.copy(alpha = 0.04f), RoundedCornerShape(16.dp))
-                        .padding(10.dp)
+                        .size(50.dp)
+                        .background(Color(0xFF262F3F), RoundedCornerShape(12.dp))
+                        .padding(6.dp)
                 ) {
                     GlideImage(
                         model = match.awayLogoUrl,
                         contentDescription = null,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Fit
-                    )
+                    ) {
+                        it.override(100, 100)
+                          .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
+                          .dontAnimate()
+                    }
                 }
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(6.dp))
                 Text(
                     text = match.awayTeam,
-                    style = MaterialTheme.typography.labelLarge,
+                    style = MaterialTheme.typography.labelMedium,
                     color = Color.White,
                     maxLines = 1,
                     textAlign = TextAlign.Center,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 11.sp
                 )
             }
         }
@@ -428,40 +433,12 @@ fun MatchCard(match: Match, onClick: () -> Unit, modifier: Modifier = Modifier) 
 
 @Composable
 fun ShimmerMatchCard() {
-    val transition = rememberInfiniteTransition()
-    val translateAnim by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1000f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1200, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        )
-    )
-
-    val shimmerColors = listOf(
-        Color.White.copy(alpha = 0.05f),
-        Color.White.copy(alpha = 0.12f),
-        Color.White.copy(alpha = 0.05f),
-    )
-
-    val brush = androidx.compose.ui.graphics.Brush.linearGradient(
-        colors = shimmerColors,
-        start = androidx.compose.ui.geometry.Offset.Zero,
-        end = androidx.compose.ui.geometry.Offset(x = translateAnim, y = translateAnim)
-    )
-
     Box(
         modifier = Modifier
-            .width(360.dp)
-            .height(170.dp)
-            .background(Color(0xFF1E293B), RoundedCornerShape(20.dp))
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(brush, RoundedCornerShape(20.dp))
-        )
-    }
+            .width(270.dp)
+            .height(128.dp)
+            .background(Color(0xFF1E293B), RoundedCornerShape(16.dp))
+    )
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
