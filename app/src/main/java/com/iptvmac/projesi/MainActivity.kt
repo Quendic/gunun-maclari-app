@@ -303,12 +303,20 @@ fun MainScreen() {
                     ) 
                 },
                 confirmButton = {
-                    androidx.compose.material3.Button(
-                        onClick = {
-                            showUpdateDialog = false
-                            downloadAndInstallApk(context, updateInfo!!.second, updateInfo!!.first)
+                    androidx.compose.material3.Button(onClick = {
+                        showUpdateDialog = false
+                        // Check for install permission on Android 8.0+
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                            if (!context.packageManager.canRequestPackageInstalls()) {
+                                val intent = Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+                                    data = Uri.parse("package:${context.packageName}")
+                                }
+                                context.startActivity(intent)
+                                return@Button
+                            }
                         }
-                    ) {
+                        downloadAndInstallApk(context, updateInfo!!.second, updateInfo!!.first)
+                    }) {
                         Text("Güncelle")
                     }
                 },
@@ -381,16 +389,36 @@ private fun downloadAndInstallApk(context: Context, url: String, version: String
     context.registerReceiver(onComplete, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), Context.RECEIVER_EXPORTED)
 }
 
-private fun installApk(context: Context, uri: Uri) {
+private fun installApk(context: Context, downloadUri: Uri) {
     try {
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, "application/vnd.android.package-archive")
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        // Find the actual file in our downloads directory
+        val file = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "")
+        val apkFile = file.listFiles()?.find { it.name.endsWith(".apk") }
+
+        if (apkFile != null) {
+            val contentUri = androidx.core.content.FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                apkFile
+            )
+
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(contentUri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(intent)
+        } else {
+            // Fallback to the Uri provided if file search fails
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(downloadUri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(intent)
         }
-        context.startActivity(intent)
     } catch (e: Exception) {
-        e.printStackTrace()
+        Log.e("InstallApk", "Error installing APK", e)
     }
 }
 
