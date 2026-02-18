@@ -40,6 +40,7 @@ import java.util.*
 import kotlinx.coroutines.*
 import org.json.JSONObject
 import android.net.Uri
+import android.util.Log
 import android.app.DownloadManager
 import android.content.Context
 import android.content.BroadcastReceiver
@@ -354,22 +355,43 @@ private fun downloadAndInstallApk(context: Context, url: String, version: String
         override fun onReceive(context: Context, intent: Intent) {
             val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L)
             if (id == downloadId) {
-                val apkUri = FileProvider.getUriForFile(
-                    context,
-                    "${context.packageName}.fileprovider",
-                    destination
-                )
-                val installIntent = Intent(Intent.ACTION_VIEW).apply {
-                    setDataAndType(apkUri, "application/vnd.android.package-archive")
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                val query = DownloadManager.Query().setFilterById(downloadId)
+                val cursor = manager.query(query)
+                if (cursor.moveToFirst()) {
+                    val status = cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_STATUS))
+                    if (status == DownloadManager.STATUS_SUCCESSFUL) {
+                        val uri = manager.getUriForDownloadedFile(downloadId)
+                        if (uri != null) {
+                            installApk(context, uri)
+                        } else {
+                            Log.e("DownloadManager", "Downloaded file URI is null for downloadId: $downloadId")
+                        }
+                    } else {
+                        val reason = cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_REASON))
+                        Log.e("DownloadManager", "Download failed for downloadId: $downloadId, status: $status, reason: $reason")
+                    }
+                } else {
+                    Log.e("DownloadManager", "Cursor is empty for downloadId: $downloadId")
                 }
-                context.startActivity(installIntent)
+                cursor.close()
                 context.unregisterReceiver(this)
             }
         }
     }
     context.registerReceiver(onComplete, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), Context.RECEIVER_EXPORTED)
+}
+
+private fun installApk(context: Context, uri: Uri) {
+    try {
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/vnd.android.package-archive")
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(intent)
+    } catch (e: Exception) {
+        e.printStackTrace()
+    }
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class, androidx.compose.ui.ExperimentalComposeUiApi::class)
