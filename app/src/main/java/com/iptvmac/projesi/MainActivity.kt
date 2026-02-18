@@ -397,11 +397,30 @@ private fun downloadAndInstallApk(context: Context, url: String, version: String
 
 private fun installApk(context: Context, downloadUri: Uri) {
     try {
-        // Find the actual file in our downloads directory
-        val file = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "")
-        val apkFile = file.listFiles()?.find { it.name.endsWith(".apk") }
+        val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        val query = DownloadManager.Query().setFilterByStatus(DownloadManager.STATUS_SUCCESSFUL)
+        val cursor = manager.query(query)
+        
+        var apkFile: File? = null
+        if (cursor.moveToFirst()) {
+            do {
+                val uriStr = cursor.getString(cursor.getColumnIndex(DownloadManager.COLUMN_LOCAL_URI))
+                if (uriStr != null && uriStr.contains("gunun-maclari")) {
+                    val fileUri = Uri.parse(uriStr)
+                    apkFile = File(fileUri.path ?: "")
+                    if (apkFile.exists()) break
+                }
+            } while (cursor.moveToNext())
+        }
+        cursor.close()
 
-        if (apkFile != null) {
+        if (apkFile == null || !apkFile.exists()) {
+            // Fallback: search in download dir
+            val dir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+            apkFile = dir?.listFiles()?.find { it.name.endsWith(".apk") }
+        }
+
+        if (apkFile != null && apkFile.exists()) {
             val contentUri = androidx.core.content.FileProvider.getUriForFile(
                 context,
                 "${context.packageName}.fileprovider",
@@ -410,14 +429,6 @@ private fun installApk(context: Context, downloadUri: Uri) {
 
             val intent = Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(contentUri, "application/vnd.android.package-archive")
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            context.startActivity(intent)
-        } else {
-            // Fallback to the Uri provided if file search fails
-            val intent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(downloadUri, "application/vnd.android.package-archive")
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
