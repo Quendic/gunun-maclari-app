@@ -27,6 +27,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.*
+import androidx.compose.ui.graphics.graphicsLayer
 import com.bumptech.glide.integration.compose.ExperimentalGlideComposeApi
 import com.bumptech.glide.integration.compose.GlideImage
 import androidx.compose.material.icons.Icons
@@ -407,10 +408,10 @@ fun MatchRow(
             horizontalArrangement = Arrangement.spacedBy(28.dp),
             contentPadding = PaddingValues(horizontal = 32.dp, vertical = 32.dp),
             modifier = Modifier
-                .graphicsLayer(clip = false) // Critical: Prevents clipping of scaled cards
+                .graphicsLayer(clip = false)
                 .focusGroup()
                 .focusProperties {
-                    this.enter = { firstItemFocusRequester }
+                    enter = { firstItemFocusRequester }
                 }
                 .onPreviewKeyEvent { event ->
                     if (isFirstRow && 
