@@ -9,6 +9,13 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.ui.input.key.*
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -53,6 +60,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainScreen() {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
     var matches by remember { mutableStateOf<List<Match>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     val apiUrl = "http://89.144.10.224:3000/api/matches"
@@ -107,6 +115,8 @@ fun MainScreen() {
         }
     }
 
+    val lazyListState = rememberLazyListState()
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -116,53 +126,47 @@ fun MainScreen() {
                 )
             )
     ) {
-        Column(modifier = Modifier.padding(horizontal = 48.dp, vertical = 32.dp)) {
-            // Premium Header
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(modifier = Modifier.size(6.dp, 32.dp).background(Color(0xFF38BDF8), RoundedCornerShape(4.dp)))
-                Spacer(modifier = Modifier.width(16.dp))
-                Text(
-                    text = "GÜNÜN MAÇLARI",
-                    style = MaterialTheme.typography.displaySmall,
-                    color = Color.White,
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = 1.sp
-                )
+        val grouped = matches.groupBy { it.league }
+        
+        LazyColumn(
+            state = lazyListState,
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(48.dp),
+            contentPadding = PaddingValues(horizontal = 48.dp, vertical = 60.dp)
+        ) {
+            item {
+                MainHeader()
             }
-            
-            Spacer(modifier = Modifier.height(32.dp))
 
             if (isLoading && matches.isEmpty()) {
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(48.dp),
-                    contentPadding = PaddingValues(bottom = 64.dp)
-                ) {
-                    repeat(3) {
-                        item {
-                            Column {
-                                Box(
-                                    modifier = Modifier
-                                        .size(150.dp, 24.dp)
-                                        .background(Color.White.copy(alpha = 0.05f), RoundedCornerShape(4.dp))
-                                )
-                                Spacer(modifier = Modifier.height(20.dp))
-                                LazyRow(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-                                    items(3) { ShimmerMatchCard() }
-                                }
+                repeat(3) {
+                    item {
+                        Column {
+                            Box(
+                                modifier = Modifier
+                                    .size(150.dp, 24.dp)
+                                    .background(Color.White.copy(alpha = 0.05f), RoundedCornerShape(4.dp))
+                            )
+                            Spacer(modifier = Modifier.height(20.dp))
+                            LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(32.dp),
+                                contentPadding = PaddingValues(vertical = 20.dp)
+                            ) {
+                                items(3) { ShimmerMatchCard() }
                             }
                         }
                     }
                 }
             } else {
-                val grouped = matches.groupBy { it.league }
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(48.dp),
-                    contentPadding = PaddingValues(bottom = 64.dp)
-                ) {
-                    grouped.forEach { (league, leagueMatches) ->
-                        item {
-                            MatchRow(league, leagueMatches, onMatchSelected = { handleMatchClick(it) })
-                        }
+                grouped.entries.forEachIndexed { index, (league, leagueMatches) ->
+                    item {
+                        MatchRow(
+                            title = league, 
+                            matches = leagueMatches, 
+                            isFirstRow = index == 0,
+                            onMatchSelected = { handleMatchClick(it) },
+                            onScrollToHeader = { scope.launch { lazyListState.animateScrollToItem(0) } }
+                        )
                     }
                 }
             }
@@ -235,9 +239,17 @@ fun MainScreen() {
     }
 }
 
-@OptIn(ExperimentalTvMaterial3Api::class)
+@OptIn(ExperimentalTvMaterial3Api::class, androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
-fun MatchRow(title: String, matches: List<Match>, onMatchSelected: (Match) -> Unit) {
+fun MatchRow(
+    title: String, 
+    matches: List<Match>, 
+    isFirstRow: Boolean,
+    onMatchSelected: (Match) -> Unit,
+    onScrollToHeader: () -> Unit
+) {
+    val firstItemFocusRequester = remember { FocusRequester() }
+    
     Column {
         Text(
             text = title, 
@@ -248,10 +260,29 @@ fun MatchRow(title: String, matches: List<Match>, onMatchSelected: (Match) -> Un
         )
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(32.dp),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 20.dp) // Added vertical padding to prevent clipping when scaled
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 20.dp),
+            modifier = Modifier
+                .focusGroup()
+                .focusProperties {
+                    this.enter = { firstItemFocusRequester }
+                }
+                .onPreviewKeyEvent { event ->
+                    if (isFirstRow && 
+                        event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP) {
+                        if (event.type == KeyEventType.KeyDown) {
+                            onScrollToHeader()
+                        }
+                        return@onPreviewKeyEvent true
+                    }
+                    false
+                }
         ) {
-            items(matches) { match ->
-                MatchCard(match = match, onClick = { onMatchSelected(match) })
+            itemsIndexed(matches) { index, match ->
+                MatchCard(
+                    match = match, 
+                    onClick = { onMatchSelected(match) },
+                    modifier = if (index == 0) Modifier.focusRequester(firstItemFocusRequester) else Modifier
+                )
             }
         }
     }
@@ -259,7 +290,7 @@ fun MatchRow(title: String, matches: List<Match>, onMatchSelected: (Match) -> Un
 
 @OptIn(ExperimentalTvMaterial3Api::class, ExperimentalGlideComposeApi::class)
 @Composable
-fun MatchCard(match: Match, onClick: () -> Unit) {
+fun MatchCard(match: Match, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val infiniteTransition = rememberInfiniteTransition()
     val pulseAlpha by infiniteTransition.animateFloat(
         initialValue = 0.3f,
@@ -284,7 +315,7 @@ fun MatchCard(match: Match, onClick: () -> Unit) {
                 shape = RoundedCornerShape(20.dp)
             )
         ),
-        modifier = Modifier.width(360.dp).height(170.dp)
+        modifier = modifier.width(360.dp).height(170.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxSize().padding(16.dp),
@@ -429,6 +460,25 @@ fun ShimmerMatchCard() {
             modifier = Modifier
                 .fillMaxSize()
                 .background(brush, RoundedCornerShape(20.dp))
+        )
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+fun MainHeader() {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(bottom = 8.dp)
+    ) {
+        Box(modifier = Modifier.size(6.dp, 32.dp).background(Color(0xFF38BDF8), RoundedCornerShape(4.dp)))
+        Spacer(modifier = Modifier.width(16.dp))
+        Text(
+            text = "GÜNÜN MAÇLARI",
+            style = MaterialTheme.typography.displaySmall,
+            color = Color.White,
+            fontWeight = FontWeight.Black,
+            letterSpacing = 1.sp
         )
     }
 }
