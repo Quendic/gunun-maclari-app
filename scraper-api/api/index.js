@@ -1,6 +1,5 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
-const puppeteer = require('puppeteer');
 
 const TARGET_LEAGUES = [
     "Süper Lig", "Premier Lig", "La Liga", "Serie A",
@@ -9,8 +8,7 @@ const TARGET_LEAGUES = [
 ];
 
 const SOURCES = {
-    MACREHBERI: "https://www.macrehberi.com/spor/futbol",
-    LIVESOCCER: "https://www.livesoccertv.com/tr/"
+    MACREHBERI: "https://www.macrehberi.com/spor/futbol"
 };
 
 let memoryCache = { date: null, data: null };
@@ -41,7 +39,11 @@ async function scrapeMacRehberi() {
     console.log("[SOURCES] Trying MacRehberi...");
     const { isoToday } = getTodayInfo();
     try {
-        const response = await axios.get(SOURCES.MACREHBERI, {
+        // Force the date via parameter to ensure we get matches for the transition period
+        const urlWithDate = `${SOURCES.MACREHBERI}?date=${isoToday}`;
+        console.log(`[SOURCES] Fetching: ${urlWithDate}`);
+
+        const response = await axios.get(urlWithDate, {
             headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36' },
             timeout: 10000
         });
@@ -67,7 +69,7 @@ async function scrapeMacRehberi() {
                             const matchedLeague = !isExcluded ? TARGET_LEAGUES.find(t => fullTitle.includes(t)) : null;
 
                             if (matchedLeague) {
-                                // Extract cleaner league name for exhibit
+                                // Extract cleaner league name
                                 let displayLeague = matchedLeague;
                                 const awayName = event.awayTeam ? event.awayTeam.name : "";
                                 if (awayName) {
@@ -78,17 +80,15 @@ async function scrapeMacRehberi() {
                                     }
                                 }
 
-                                // Extract channels - Improved logic
+                                // Extract channels
                                 let channels = "";
                                 if (item.recordedAt && Array.isArray(item.recordedAt)) {
-                                    // Flatten and map names from potential nested arrays
                                     channels = item.recordedAt.flat(2)
                                         .filter(c => c && c.name)
                                         .map(c => c.name.trim())
                                         .join(', ');
                                 }
 
-                                // Fallback: Extract from fullTitle if recordedAt is empty
                                 if (!channels && fullTitle.includes('kanal')) {
                                     const channelMatch = fullTitle.match(/maçı,\s(.*)\skanal/);
                                     if (channelMatch && channelMatch[1]) {
@@ -121,91 +121,29 @@ async function scrapeMacRehberi() {
     }
 }
 
-async function scrapeLiveSoccerTV(browser) {
-    console.log("[SOURCES] Trying LiveSoccerTV with Puppeteer...");
-    const { trDayMonth } = getTodayInfo();
-    try {
-        const page = await browser.newPage();
-        await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36");
-        await page.goto(SOURCES.LIVESOCCER, { waitUntil: 'domcontentloaded', timeout: 30000 });
-
-        const matches = await page.evaluate((targets, todayStr) => {
-            const results = [];
-            let currentComp = "";
-            let currentDate = "";
-            const rows = Array.from(document.querySelectorAll('tr'));
-
-            rows.forEach(row => {
-                if (row.className.includes('date') || (row.cells.length === 1 && row.cells[0].className === 'date')) {
-                    currentDate = row.innerText.trim();
-                } else if (row.querySelector('td.competition')) {
-                    currentComp = row.innerText.trim();
-                } else if (row.className.includes('matchrow')) {
-                    const isToday = currentDate.includes(todayStr) || currentDate.toLowerCase().includes('bugün');
-                    const isWomenComp = currentComp.toLowerCase().includes('kadın') ||
-                        currentComp.toLowerCase().includes('kadınlar') ||
-                        currentComp.toLowerCase().includes('afc') ||
-                        currentComp.toLowerCase().includes('asya');
-                    const leagueMatch = !isWomenComp ? targets.find(t => currentComp.includes(t)) : null;
-
-                    if (isToday && leagueMatch) {
-                        const cells = row.cells;
-                        const matchText = cells[2] ? cells[2].innerText.trim() : "";
-                        const teams = matchText.split(/\s\d+\s-\s\d+\s|\svs\s|\s-\s/);
-                        results.push({
-                            time: cells[1] ? cells[1].innerText.trim() : "",
-                            home: teams[0] ? teams[0].trim() : matchText,
-                            away: teams[1] ? teams[1].trim() : "",
-                            league: leagueMatch,
-                            channel: cells[3] ? cells[3].innerText.trim() : "Yayın Yok",
-                            isLive: row.className.includes('livematch')
-                        });
-                    }
-                }
-            });
-            return results;
-        }, TARGET_LEAGUES, trDayMonth);
-        await page.close();
-        return matches;
-    } catch (e) {
-        console.error("LiveSoccer Puppeteer Fail:", e.message);
-        return [];
-    }
-}
-
 module.exports = async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Content-Type', 'application/json');
 
     const { trDate } = getTodayInfo();
-    if (memoryCache.date === trDate && memoryCache.data) {
+
+    // Check cache
+    if (memoryCache.date === trDate && memoryCache.data && memoryCache.data.length > 0) {
         return res.status(200).json(memoryCache.data);
     }
 
-    let allMatches = [];
-
-    // 1. Try MacRehberi (Fastest)
-    allMatches = await scrapeMacRehberi();
-
-    // 2. If nothing found or to merge data, try LiveSoccer (Fallback/Backup)
-    if (allMatches.length < 5) {
-        let browser = null;
-        try {
-            browser = await puppeteer.launch({ headless: "new", args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'] });
-            const liveMatches = await scrapeLiveSoccerTV(browser);
-            allMatches = [...allMatches, ...liveMatches];
-        } catch (e) {
-            console.error("Browser Launch Fail:", e.message);
-        } finally {
-            if (browser) await browser.close();
-        }
-    }
+    // Single source: MacRehberi
+    const allMatches = await scrapeMacRehberi();
 
     // Deduplicate by home team and time
     const finalData = allMatches.filter((v, i, a) =>
         a.findIndex(t => (t.home === v.home && t.time === v.time)) === i
     );
 
-    memoryCache = { date: trDate, data: finalData };
+    // Update cache
+    if (finalData.length > 0) {
+        memoryCache = { date: trDate, data: finalData };
+    }
+
     res.status(200).json(finalData);
 };
