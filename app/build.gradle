@@ -9,8 +9,8 @@ android {
         applicationId "com.iptvmac.projesi"
         minSdk 21
         targetSdk 34
-        versionCode 1
-        versionName "1.0"
+        versionCode 3
+        versionName "1.2"
     }
 
     signingConfigs {
@@ -45,6 +45,16 @@ android {
 
     composeOptions {
         kotlinCompilerExtensionVersion '1.5.8'
+    }
+
+    applicationVariants.all { variant ->
+        variant.outputs.all {
+            if (variant.buildType.name == "release") {
+                outputFileName = "gunun-maclari-v${variant.versionName}.apk"
+            } else {
+                outputFileName = "gunun-maclari-debug-v${variant.versionName}.apk"
+            }
+        }
     }
 }
 

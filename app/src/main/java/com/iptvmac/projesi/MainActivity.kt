@@ -36,6 +36,15 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import java.util.*
 import kotlinx.coroutines.*
+import org.json.JSONObject
+import android.net.Uri
+import android.app.DownloadManager
+import android.content.Context
+import android.content.BroadcastReceiver
+import android.content.IntentFilter
+import android.os.Environment
+import androidx.core.content.FileProvider
+import java.io.File
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 class MainActivity : ComponentActivity() {
@@ -68,8 +77,37 @@ fun MainScreen() {
     var showStreamDialog by remember { mutableStateOf(false) }
     var availableStreams by remember { mutableStateOf<List<Stream>>(emptyList()) }
     var selectedMatchName by remember { mutableStateOf("") }
+    
+    // Update States
+    var showUpdateDialog by remember { mutableStateOf(false) }
+    var updateInfo by remember { mutableStateOf<Pair<String, String>?>(null) } // Version, URL
 
     LaunchedEffect(Unit) {
+        // Check for updates
+        scope.launch(Dispatchers.IO) {
+            try {
+                val githubRepo = "Quendic/gunun-maclari-app"
+                val releaseUrl = "https://api.github.com/repos/$githubRepo/releases/latest"
+                val response = java.net.URL(releaseUrl).readText()
+                val json = JSONObject(response)
+                val latestVersion = json.getString("tag_name").replace("v", "")
+                val currentVersion = context.packageManager.getPackageInfo(context.packageName, 0).versionName
+                
+                if (isNewerVersion(currentVersion, latestVersion)) {
+                    val assets = json.getJSONArray("assets")
+                    for (i in 0 until assets.length()) {
+                        val asset = assets.getJSONObject(i)
+                        if (asset.getString("name").endsWith(".apk")) {
+                            updateInfo = latestVersion to asset.getString("browser_download_url")
+                            withContext(Dispatchers.Main) { showUpdateDialog = true }
+                            break
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
         withContext(Dispatchers.IO) {
             ChannelManager.initialize(context)
             try {
@@ -127,12 +165,39 @@ fun MainScreen() {
             )
     ) {
         val grouped = remember(matches) { matches.groupBy { it.league } }
+        val lastLeagueIndex = remember(grouped) { grouped.size - 1 }
         
         LazyColumn(
             state = lazyListState,
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(48.dp),
-            contentPadding = PaddingValues(horizontal = 48.dp, vertical = 60.dp)
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer(clip = false) // Allow scaled items to bleed over boundaries
+                .onPreviewKeyEvent { event ->
+                    val isKeyTypeDown = event.type == KeyEventType.KeyDown
+                    val keyCode = event.nativeKeyEvent.keyCode
+                    
+                    // Prevent exiting when pressing UP at the very top
+                    if (isKeyTypeDown && keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP) {
+                        if (lazyListState.firstVisibleItemIndex == 0 && lazyListState.firstVisibleItemScrollOffset <= 0) {
+                            return@onPreviewKeyEvent true // Consume and do nothing
+                        }
+                    }
+                    
+                    // Prevent exiting when pressing DOWN at the very bottom
+                    if (isKeyTypeDown && keyCode == android.view.KeyEvent.KEYCODE_DPAD_DOWN) {
+                        // Check if we are at the last league row
+                        // (Header is index 0, so last row is index grouped.size)
+                        if (lazyListState.firstVisibleItemIndex >= (grouped.size)) {
+                            // If we can't scroll further down, trap focus
+                            if (!lazyListState.canScrollForward) {
+                                return@onPreviewKeyEvent true
+                            }
+                        }
+                    }
+                    false
+                },
+            verticalArrangement = Arrangement.spacedBy(32.dp),
+            contentPadding = PaddingValues(start = 58.dp, end = 58.dp, top = 60.dp, bottom = 120.dp)
         ) {
             item(key = "header") {
                 MainHeader()
@@ -236,7 +301,87 @@ fun MainScreen() {
                 shape = RoundedCornerShape(24.dp)
             )
         }
+
+        // Update Dialog
+        if (showUpdateDialog && updateInfo != null) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { showUpdateDialog = false },
+                title = { Text("Yeni Güncelleme Mevcut!", color = Color.White) },
+                text = { 
+                    Text(
+                        "Uygulamanın yeni bir sürümü (v${updateInfo!!.first}) mevcut. Şimdi indirip yüklemek ister misiniz?",
+                        color = Color(0xFF94A3B8)
+                    ) 
+                },
+                confirmButton = {
+                    androidx.compose.material3.Button(
+                        onClick = {
+                            showUpdateDialog = false
+                            downloadAndInstallApk(context, updateInfo!!.second, updateInfo!!.first)
+                        }
+                    ) {
+                        Text("Güncelle")
+                    }
+                },
+                dismissButton = {
+                    androidx.compose.material3.TextButton(onClick = { showUpdateDialog = false }) {
+                        Text("Daha Sonra", color = Color.Gray)
+                    }
+                },
+                containerColor = Color(0xFF0F172A),
+                shape = RoundedCornerShape(24.dp)
+            )
+        }
     }
+}
+
+private fun isNewerVersion(current: String, latest: String): Boolean {
+    try {
+        val currParts = current.split(".").map { it.toInt() }
+        val lateParts = latest.split(".").map { it.toInt() }
+        for (i in 0 until maxOf(currParts.size, lateParts.size)) {
+            val curr = if (i < currParts.size) currParts[i] else 0
+            val late = if (i < lateParts.size) lateParts[i] else 0
+            if (late > curr) return true
+            if (curr > late) return false
+        }
+    } catch (e: Exception) {}
+    return false
+}
+
+private fun downloadAndInstallApk(context: Context, url: String, version: String) {
+    val destination = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "gunun-maclari-v$version.apk")
+    if (destination.exists()) destination.delete()
+
+    val request = DownloadManager.Request(Uri.parse(url))
+        .setTitle("Günün Maçları Güncelleniyor")
+        .setDescription("Yeni sürüm indiriliyor...")
+        .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+        .setDestinationUri(Uri.fromFile(destination))
+
+    val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+    val downloadId = manager.enqueue(request)
+
+    val onComplete = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L)
+            if (id == downloadId) {
+                val apkUri = FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    destination
+                )
+                val installIntent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(apkUri, "application/vnd.android.package-archive")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(installIntent)
+                context.unregisterReceiver(this)
+            }
+        }
+    }
+    context.registerReceiver(onComplete, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), Context.RECEIVER_EXPORTED)
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class, androidx.compose.ui.ExperimentalComposeUiApi::class)
@@ -259,9 +404,10 @@ fun MatchRow(
             fontWeight = FontWeight.Bold
         )
         LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(32.dp),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 20.dp),
+            horizontalArrangement = Arrangement.spacedBy(28.dp),
+            contentPadding = PaddingValues(horizontal = 32.dp, vertical = 32.dp),
             modifier = Modifier
+                .graphicsLayer(clip = false) // Critical: Prevents clipping of scaled cards
                 .focusGroup()
                 .focusProperties {
                     this.enter = { firstItemFocusRequester }
@@ -308,11 +454,14 @@ fun MatchCard(match: Match, onClick: () -> Unit, modifier: Modifier = Modifier) 
         ),
         border = ClickableSurfaceDefaults.border(
             focusedBorder = Border(
-                border = BorderStroke(2.dp, Color(0xFF38BDF8)),
+                border = BorderStroke(3.dp, Color(0xFF38BDF8)),
                 shape = RoundedCornerShape(16.dp)
             )
         ),
-        modifier = modifier.width(270.dp).height(128.dp)
+        modifier = modifier
+            .padding(12.dp) // Increased padding to give headroom for scaling (1.08f)
+            .width(270.dp)
+            .height(128.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxSize().padding(12.dp),
