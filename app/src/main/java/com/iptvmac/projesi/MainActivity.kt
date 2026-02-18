@@ -334,15 +334,21 @@ fun MainScreen() {
 
 private fun isNewerVersion(current: String, latest: String): Boolean {
     try {
-        val currParts = current.split(".").map { it.toInt() }
-        val lateParts = latest.split(".").map { it.toInt() }
-        for (i in 0 until maxOf(currParts.size, lateParts.size)) {
+        // Robust parsing: remove everything except numbers and dots, then split
+        val currParts = current.filter { it.isDigit() || it == '.' }.split(".").filter { it.isNotEmpty() }.map { it.toInt() }
+        val lateParts = latest.filter { it.isDigit() || it == '.' }.split(".").filter { it.isNotEmpty() }.map { it.toInt() }
+        
+        val maxParts = maxOf(currParts.size, lateParts.size)
+        for (i in 0 until maxParts) {
             val curr = if (i < currParts.size) currParts[i] else 0
             val late = if (i < lateParts.size) lateParts[i] else 0
+            
             if (late > curr) return true
-            if (curr > late) return false
+            if (late < curr) return false
         }
-    } catch (e: Exception) {}
+    } catch (e: Exception) {
+        Log.e("UpdateCheck", "Error comparing versions: current=$current, latest=$latest", e)
+    }
     return false
 }
 
