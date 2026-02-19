@@ -2,7 +2,7 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 
 const TARGET_LEAGUES = [
-    "Süper Lig", "Premier Lig", "La Liga", "Serie A", "Ligue 1", "Bundesliga",
+    "Süper Lig", "Premier Lig", "La Liga", "Serie A",
     "UEFA Şampiyonlar Ligi", "UEFA Avrupa Ligi", "UEFA Konferans Ligi", "UEFA Avrupa Konferans Ligi",
     "Premier League", "Champions League", "Europa League", "Conference League"
 ];
