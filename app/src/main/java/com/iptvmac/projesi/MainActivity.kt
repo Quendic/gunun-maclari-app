@@ -117,10 +117,15 @@ fun MainScreen() {
                 val response = java.net.URL(apiUrl).readText()
                 val list = parseJsonResponse(response)
                 
-                // Filter matches: Only keep those that have at least one stream in our M3U
+                // Filter matches: show if in M3U OR if it's a national channel (TRT etc.)
                 val filteredList = list.filter { match ->
                     val channels = match.channel.split(",").map { it.trim() }
-                    channels.any { ChannelManager.findStreams(it).isNotEmpty() }
+                    val hasM3UChannel = channels.any { ChannelManager.findStreams(it).isNotEmpty() }
+                    val isNationalChannel = channels.any { ch ->
+                        val c = ch.uppercase()
+                        c.contains("TRT") || c.contains("TV 8") || c.contains("A SPOR") || c.contains("ATV")
+                    }
+                    hasM3UChannel || isNationalChannel
                 }
 
                 withContext(Dispatchers.Main) {
