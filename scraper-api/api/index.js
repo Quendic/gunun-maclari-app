@@ -73,7 +73,7 @@ async function scrapeMacRehberi() {
                                 let displayLeague = matchedLeague;
                                 const awayName = event.awayTeam ? event.awayTeam.name : "";
                                 if (awayName) {
-                                    const leagueRegex = new RegExp(`${awayName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s+(.*?)\\s+maçı`);
+                                    const leagueRegex = new RegExp(`${awayName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s+(.*?)\\s+ma\u00e7\u0131`);
                                     const leagueMatch = fullTitle.match(leagueRegex);
                                     if (leagueMatch && leagueMatch[1]) {
                                         displayLeague = leagueMatch[1].trim();
@@ -90,7 +90,7 @@ async function scrapeMacRehberi() {
                                 }
 
                                 if (!channels && fullTitle.includes('kanal')) {
-                                    const channelMatch = fullTitle.match(/maçı,\s(.*)\skanal/);
+                                    const channelMatch = fullTitle.match(/ma\u00e7\u0131,\s(.*)\skanal/);
                                     if (channelMatch && channelMatch[1]) {
                                         channels = channelMatch[1].trim();
                                     }
