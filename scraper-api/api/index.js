@@ -62,7 +62,7 @@ async function scrapeMacRehberi() {
                             const fullTitle = item.name || "";
 
                             // Blacklist for Women/Youth/AFC etc. (Case-insensitive check)
-                            const blacklist = ['kadin', 'kadın', 'bayan', 'women', 'gençlik', 'youth', 'u19', 'u21', 'u17', 'afc', 'asya'];
+                            const blacklist = ['kadin', 'kadın', 'bayan', 'women', 'gençlik', 'youth', 'u19', 'u21', 'u17', 'afc', 'asya', 'azerbaycan'];
                             const titleLower = fullTitle.toLowerCase();
                             const isExcluded = blacklist.some(k => titleLower.includes(k));
 
