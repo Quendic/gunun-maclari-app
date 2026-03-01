@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "107549100726",
+    "project_id": "iptv-mac-player",
+    "storage_bucket": "iptv-mac-player.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:107549100726:android:3ce1cc6cce75cd42883417",
+        "android_client_info": {
+          "package_name": "com.iptvmac.projesi"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "107549100726-u1a31b6cdcolf7i55aarfm48v1eclagc.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.iptvmac.projesi",
+            "certificate_hash": "64eb7b1275104ff0f2ef6428441f3271c089a9ed"
+          }
+        },
+        {
+          "client_id": "107549100726-8qi6biukbi1hvo0t43q833itn1ovcsi8.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCJU7k_y4e1pHeXFKQLS5sjVU0049W0lmM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "107549100726-8qi6biukbi1hvo0t43q833itn1ovcsi8.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

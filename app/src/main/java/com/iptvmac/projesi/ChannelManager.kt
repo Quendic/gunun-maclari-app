@@ -16,51 +16,32 @@ object ChannelManager {
     private val allStreams = mutableListOf<Stream>()
     private var isInitialized = false
 
+    val isDataLoaded: Boolean get() = allStreams.isNotEmpty()
+
     fun initialize(context: Context) {
         if (isInitialized) return
+        // ... existing logic can stay for default channels if any, or we can skip it
+    }
+
+    fun loadFromFirestore(json: String) {
         try {
-            val inputStream = context.assets.open("channels.m3u")
-            val reader = BufferedReader(InputStreamReader(inputStream))
-            var currentStreamName = ""
-            var currentGroup = ""
-
-            reader.forEachLine { line ->
-                val trimmedLine = line.trim()
-                if (trimmedLine.isNotEmpty()) {
-                    if (trimmedLine.startsWith("#EXTINF")) {
-                        // Parse metadata
-                        // format: #EXTINF:-1 tvg-id="id" tvg-name="name" tvg-logo="url" group-title="group",Display Name
-                        
-                        // Extract display name (last part after comma)
-                        val lastCommaIndex = trimmedLine.lastIndexOf(',')
-                        if (lastCommaIndex != -1) {
-                            currentStreamName = trimmedLine.substring(lastCommaIndex + 1).trim()
-                        }
-                        
-                        // Extract group-title
-                        val groupMatch = Regex("group-title=\"(.*?)\"").find(trimmedLine)
-                        if (groupMatch != null) {
-                            currentGroup = groupMatch.groupValues[1]
-                        }
-
-                    } else if (!trimmedLine.startsWith("#")) {
-                        // It's a URL
-                        if (currentStreamName.isNotEmpty()) {
-                            val quality = when {
-                                currentStreamName.contains("UHD", true) || currentStreamName.contains("4K", true) -> "4K UHD"
-                                currentStreamName.contains("FHD", true) -> "FHD"
-                                currentStreamName.contains("HD", true) -> "HD"
-                                currentStreamName.contains("SD", true) -> "SD"
-                                else -> "SD" // Default
-                            }
-                            
-                            allStreams.add(Stream(currentStreamName, trimmedLine, quality, currentGroup))
-                            currentStreamName = "" // Reset
-                        }
-                    }
+            allStreams.clear()
+            val channelsArr = org.json.JSONArray(json)
+            for (i in 0 until channelsArr.length()) {
+                val channelObj = channelsArr.getJSONObject(i)
+                val channelName = channelObj.getString("name")
+                val streamsArr = channelObj.getJSONArray("streams")
+                
+                for (j in 0 until streamsArr.length()) {
+                    val streamObj = streamsArr.getJSONObject(j)
+                    allStreams.add(Stream(
+                        name = channelName, // Use normalized channel name
+                        url = streamObj.getString("url"),
+                        quality = streamObj.optString("quality", "SD"),
+                        group = streamObj.optString("group", "")
+                    ))
                 }
             }
-            reader.close()
             isInitialized = true
         } catch (e: Exception) {
             e.printStackTrace()
@@ -76,10 +57,10 @@ object ChannelManager {
             val cleanStream = cleanName(stream.name)
             cleanStream == cleanTarget
         }.sortedBy { 
-            when {
-                it.name.contains("4K", true) || it.name.contains("UHD", true) -> 0
-                it.name.contains("FHD", true) -> 1
-                it.name.contains("HD", true) -> 2
+            when (it.quality) {
+                "4K UHD" -> 0
+                "FHD" -> 1
+                "HD" -> 2
                 else -> 3
             }
         }

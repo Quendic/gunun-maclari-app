@@ -1,61 +1,61 @@
+@file:OptIn(androidx.tv.material3.ExperimentalTvMaterial3Api::class, com.bumptech.glide.integration.compose.ExperimentalGlideComposeApi::class)
 package com.iptvmac.projesi
 
+import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.tv.foundation.lazy.list.*
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.tv.foundation.PivotOffsets
-import androidx.compose.ui.input.key.*
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.focusProperties
-import androidx.compose.foundation.focusGroup
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.tv.material3.*
-import androidx.compose.ui.graphics.graphicsLayer
-import com.bumptech.glide.integration.compose.ExperimentalGlideComposeApi
-import com.bumptech.glide.integration.compose.GlideImage
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text as MaterialText
+import androidx.compose.material3.Button as MaterialButton
+import androidx.compose.material3.TextButton as MaterialTextButton
+import androidx.compose.material3.AlertDialog as MaterialAlertDialog
+import androidx.tv.material3.*
+import androidx.tv.foundation.lazy.list.*
+import androidx.tv.foundation.PivotOffsets
+import com.bumptech.glide.integration.compose.ExperimentalGlideComposeApi
+import com.bumptech.glide.integration.compose.GlideImage
 import java.util.*
 import kotlinx.coroutines.*
 import org.json.JSONObject
 import android.net.Uri
 import android.util.Log
-import android.app.DownloadManager
-import android.content.Context
-import android.content.BroadcastReceiver
-import android.content.IntentFilter
-import android.os.Environment
-import androidx.core.content.FileProvider
-import java.io.File
 
-@OptIn(ExperimentalTvMaterial3Api::class)
+@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalGlideComposeApi::class)
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme(
-                colorScheme = darkColorScheme(
+            androidx.tv.material3.MaterialTheme(
+                colorScheme = androidx.tv.material3.MaterialTheme.colorScheme.copy(
                     background = Color(0xFF020617),
                     surface = Color(0xFF1E293B),
                     primary = Color(0xFF38BDF8),
@@ -73,63 +73,48 @@ class MainActivity : ComponentActivity() {
 fun MainScreen() {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
+    
+    var isSubscribed by remember { mutableStateOf<Boolean?>(null) }
+    var m3uSynced by remember { mutableStateOf<Boolean?>(null) }
+    
     var matches by remember { mutableStateOf<List<Match>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
+    var userProfile by remember { mutableStateOf<Map<String, Any>?>(null) }
+    var showProfileMenu by remember { mutableStateOf(false) }
+    
     val apiUrl = "http://89.144.10.224:3000/api/matches"
-    
-    var showStreamDialog by remember { mutableStateOf(false) }
-    var availableStreams by remember { mutableStateOf<List<Stream>>(emptyList()) }
-    var selectedMatchName by remember { mutableStateOf("") }
-    
-    // Update States
-    var showUpdateDialog by remember { mutableStateOf(false) }
-    var updateInfo by remember { mutableStateOf<Pair<String, String>?>(null) } // Version, URL
 
-    LaunchedEffect(Unit) {
-        // Check for updates
+    fun loadData() {
+        isLoading = true
         scope.launch(Dispatchers.IO) {
             try {
-                val githubRepo = "Quendic/gunun-maclari-app"
-                val releaseUrl = "https://api.github.com/repos/$githubRepo/releases/latest"
-                val response = java.net.URL(releaseUrl).readText()
-                val json = JSONObject(response)
-                val latestVersion = json.getString("tag_name").replace("v", "")
-                val currentVersion = context.packageManager.getPackageInfo(context.packageName, 0).versionName
-                
-                if (isNewerVersion(currentVersion, latestVersion)) {
-                    val assets = json.getJSONArray("assets")
-                    for (i in 0 until assets.length()) {
-                        val asset = assets.getJSONObject(i)
-                        if (asset.getString("name").endsWith(".apk")) {
-                            updateInfo = latestVersion to asset.getString("browser_download_url")
-                            withContext(Dispatchers.Main) { showUpdateDialog = true }
-                            break
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
-        withContext(Dispatchers.IO) {
-            ChannelManager.initialize(context)
-            try {
-                val response = java.net.URL(apiUrl).readText()
-                val list = parseJsonResponse(response)
-                
-                // Filter matches: show if in M3U OR if it's a national channel (TRT etc.)
-                val filteredList = list.filter { match ->
-                    val channels = match.channel.split(",").map { it.trim() }
-                    val hasM3UChannel = channels.any { ChannelManager.findStreams(it).isNotEmpty() }
-                    val isNationalChannel = channels.any { ch ->
-                        val c = ch.uppercase()
-                        c.contains("TRT") || c.contains("TV 8") || c.contains("A SPOR") || c.contains("ATV")
-                    }
-                    hasM3UChannel || isNationalChannel
+                AuthManager.getUserFullProfile { profile ->
+                    userProfile = profile
                 }
 
+                // 1. Abonelik Kontrolü
+                AuthManager.checkSubscriptionStatus { subscribed ->
+                    isSubscribed = subscribed
+                    if (subscribed) {
+                        // 2. Kanal Kontrolü (Firestore'dan)
+                        AuthManager.getChannels { json ->
+                            if (json != null) {
+                                ChannelManager.loadFromFirestore(json)
+                                m3uSynced = true
+                            } else {
+                                m3uSynced = false
+                            }
+                        }
+                    } else {
+                        m3uSynced = false
+                    }
+                }
+
+                // 3. Maç Listesini Çek
+                val response = java.net.URL(apiUrl).readText()
+                val list = parseJsonResponse(response)
                 withContext(Dispatchers.Main) {
-                    matches = filteredList
+                    matches = list
                     isLoading = false
                 }
             } catch (e: Exception) {
@@ -137,6 +122,89 @@ fun MainScreen() {
             }
         }
     }
+
+    LaunchedEffect(Unit) {
+        loadData()
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        when {
+            isSubscribed == null || (isSubscribed == true && m3uSynced == null) -> {
+                LoadingPlaceholder()
+            }
+            isSubscribed == false -> {
+                SubscriptionRequiredScreen(onRefresh = { loadData() })
+            }
+            m3uSynced == false -> {
+                M3USetupScreen(onComplete = { m3uSynced = true })
+            }
+            else -> {
+                MatchListContent(
+                    matches = matches, 
+                    isLoading = isLoading,
+                    userProfile = userProfile,
+                    showProfileMenu = showProfileMenu,
+                    onToggleProfile = { showProfileMenu = !showProfileMenu },
+                    onUpdateList = {
+                        m3uSynced = false
+                        showProfileMenu = false
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun LoadingPlaceholder() {
+    Box(modifier = Modifier.fillMaxSize().background(Color(0xFF020617)), contentAlignment = Alignment.Center) {
+        CircularProgressIndicator(color = Color(0xFF38BDF8))
+    }
+}
+
+@Composable
+fun SubscriptionRequiredScreen(onRefresh: () -> Unit) {
+    Box(
+        modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF020617), Color(0xFF1E1B4B)))),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
+            Box(modifier = Modifier.size(80.dp).background(Color(0xFF38BDF8).copy(alpha = 0.1f), CircleShape).padding(16.dp), contentAlignment = Alignment.Center) {
+                Icon(imageVector = Icons.Default.Refresh, contentDescription = null, tint = Color(0xFF38BDF8), modifier = Modifier.size(40.dp))
+            }
+            Spacer(modifier = Modifier.height(24.dp))
+            androidx.tv.material3.Text("Premium Üyelik Gerekli", style = androidx.tv.material3.MaterialTheme.typography.displayMedium, color = Color.White, fontWeight = FontWeight.Black)
+            Spacer(modifier = Modifier.height(12.dp))
+            androidx.tv.material3.Text("İçeriğe erişmek için aktif bir aboneliğiniz olmalıdır.", color = Color(0xFF94A3B8), textAlign = TextAlign.Center)
+            Spacer(modifier = Modifier.height(48.dp))
+            androidx.tv.material3.Button(onClick = onRefresh, modifier = Modifier.width(260.dp), colors = ButtonDefaults.colors(containerColor = Color(0xFF38BDF8), contentColor = Color.White)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    androidx.tv.material3.Text("Durumu Kontrol Et")
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+fun MatchListContent(
+    matches: List<Match>, 
+    isLoading: Boolean,
+    userProfile: Map<String, Any>?,
+    showProfileMenu: Boolean,
+    onToggleProfile: () -> Unit,
+    onUpdateList: () -> Unit
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+    val tvLazyListState = rememberTvLazyListState()
+    
+    var showStreamDialog by remember { mutableStateOf(false) }
+    var availableStreams by remember { mutableStateOf<List<Stream>>(emptyList()) }
+    var selectedMatchName by remember { mutableStateOf("") }
 
     fun launchPlayer(stream: Stream) {
         val intent = Intent(context, PlayerActivity::class.java).apply {
@@ -161,57 +229,49 @@ fun MainScreen() {
         }
     }
 
-    val tvLazyListState = rememberTvLazyListState()
-
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                androidx.compose.ui.graphics.Brush.verticalGradient(
-                    colors = listOf(Color(0xFF020617), Color(0xFF0F172A))
-                )
-            )
+        modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF020617), Color(0xFF0F172A))))
     ) {
         val grouped = remember(matches) { matches.groupBy { it.league } }
-        val lastLeagueIndex = remember(grouped) { grouped.size - 1 }
         
         TvLazyColumn(
             state = tvLazyListState,
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer(clip = false)
-                .onPreviewKeyEvent { event ->
-                    if (event.type == KeyEventType.KeyDown && event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP) {
-                        if (tvLazyListState.firstVisibleItemIndex == 0 && tvLazyListState.firstVisibleItemScrollOffset <= 0) {
-                            return@onPreviewKeyEvent true
-                        }
-                    }
-                    false
-                },
+            modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(48.dp),
             contentPadding = PaddingValues(start = 58.dp, end = 58.dp, top = 60.dp, bottom = 150.dp),
             pivotOffsets = PivotOffsets(parentFraction = 0.5f)
         ) {
-            item(key = "header") {
-                MainHeader()
+            item(key = "header") { 
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    MainHeader()
+                    
+                    ProfileSection(
+                        userProfile = userProfile,
+                        isExpanded = showProfileMenu,
+                        onToggle = onToggleProfile,
+                        onLogout = {
+                            AuthManager.signOut(context) {
+                                context.startActivity(Intent(context, LoginActivity::class.java))
+                                (context as? Activity)?.finish()
+                            }
+                        },
+                        onUpdateList = onUpdateList
+                    )
+                }
             }
 
             if (isLoading && matches.isEmpty()) {
                 repeat(3) { rowIndex ->
-                    item(key = "shimmer_row_$rowIndex") {
+                    item {
                         Column {
-                            Box(
-                                modifier = Modifier
-                                    .size(150.dp, 24.dp)
-                                    .background(Color.White.copy(alpha = 0.05f), RoundedCornerShape(4.dp))
-                            )
+                            Box(modifier = Modifier.size(150.dp, 24.dp).background(Color.White.copy(0.05f), RoundedCornerShape(4.dp)))
                             Spacer(modifier = Modifier.height(20.dp))
-                            TvLazyRow(
-                                horizontalArrangement = Arrangement.spacedBy(32.dp),
-                                contentPadding = PaddingValues(vertical = 40.dp),
-                                pivotOffsets = PivotOffsets(parentFraction = 0.5f)
-                            ) {
-                                items(3, key = { "shimmer_$it" }) { ShimmerMatchCard() }
+                            TvLazyRow(horizontalArrangement = Arrangement.spacedBy(32.dp)) {
+                                items(3) { ShimmerMatchCard() }
                             }
                         }
                     }
@@ -231,55 +291,35 @@ fun MainScreen() {
             }
         }
 
-        // Stream Selection Dialog
         if (showStreamDialog) {
-            androidx.compose.material3.AlertDialog(
+            // Use MaterialAlertDialog but content should be custom UI to look good on TV
+            MaterialAlertDialog(
                 onDismissRequest = { showStreamDialog = false },
                 title = { 
                     Column {
-                        Text("Yayın Seçiniz", color = Color.White, style = MaterialTheme.typography.headlineSmall)
-                        Text(selectedMatchName, color = Color(0xFF94A3B8), style = MaterialTheme.typography.labelMedium)
-                        Spacer(modifier = Modifier.height(16.dp))
+                        androidx.tv.material3.Text("Yayın Seçiniz", color = Color.White, style = androidx.tv.material3.MaterialTheme.typography.headlineSmall)
+                        androidx.tv.material3.Text(selectedMatchName, color = Color(0xFF94A3B8), style = androidx.tv.material3.MaterialTheme.typography.labelMedium)
                     }
                 },
                 text = {
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.heightIn(max = 400.dp)) {
                         items(availableStreams) { stream ->
-                            Surface(
+                            androidx.tv.material3.Surface(
                                 onClick = {
                                     showStreamDialog = false
                                     launchPlayer(stream)
                                 },
                                 shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
                                 colors = ClickableSurfaceDefaults.colors(
-                                    containerColor = Color.White.copy(alpha = 0.05f),
-                                    focusedContainerColor = Color.White.copy(alpha = 0.15f)
-                                ),
-                                modifier = Modifier.fillMaxWidth()
+                                    containerColor = Color.White.copy(0.05f),
+                                    focusedContainerColor = Color.White.copy(0.15f)
+                                )
                             ) {
-                                Row(
-                                    modifier = Modifier.padding(16.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = androidx.compose.material.icons.Icons.Default.PlayArrow,
-                                        contentDescription = null,
-                                        tint = Color(0xFF38BDF8)
-                                    )
+                                Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color(0xFF38BDF8))
                                     Spacer(modifier = Modifier.width(12.dp))
-                                    Text(
-                                        text = stream.name,
-                                        color = Color.White,
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                    Box(
-                                        modifier = Modifier
-                                            .background(Color(0xFF38BDF8).copy(alpha = 0.2f), RoundedCornerShape(6.dp))
-                                            .padding(horizontal = 10.dp, vertical = 4.dp)
-                                    ) {
-                                        Text(stream.quality, color = Color(0xFF38BDF8), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                                    }
+                                    androidx.tv.material3.Text(text = stream.name, color = Color.White, modifier = Modifier.weight(1f))
+                                    androidx.tv.material3.Text(stream.quality, color = Color(0xFF38BDF8), fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -287,47 +327,8 @@ fun MainScreen() {
                 },
                 confirmButton = {},
                 dismissButton = {
-                    androidx.compose.material3.TextButton(onClick = { showStreamDialog = false }) {
-                        Text("İptal", color = Color.Gray)
-                    }
-                },
-                containerColor = Color(0xFF0F172A),
-                shape = RoundedCornerShape(24.dp)
-            )
-        }
-
-        // Update Dialog
-        if (showUpdateDialog && updateInfo != null) {
-            androidx.compose.material3.AlertDialog(
-                onDismissRequest = { showUpdateDialog = false },
-                title = { Text("Yeni Güncelleme Mevcut!", color = Color.White) },
-                text = { 
-                    Text(
-                        "Uygulamanın yeni bir sürümü (v${updateInfo!!.first}) mevcut. Şimdi indirip yüklemek ister misiniz?",
-                        color = Color(0xFF94A3B8)
-                    ) 
-                },
-                confirmButton = {
-                    androidx.compose.material3.Button(onClick = {
-                        showUpdateDialog = false
-                        // Check for install permission on Android 8.0+
-                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                            if (!context.packageManager.canRequestPackageInstalls()) {
-                                val intent = Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
-                                    data = Uri.parse("package:${context.packageName}")
-                                }
-                                context.startActivity(intent)
-                                return@Button
-                            }
-                        }
-                        downloadAndInstallApk(context, updateInfo!!.second, updateInfo!!.first)
-                    }) {
-                        Text("Güncelle")
-                    }
-                },
-                dismissButton = {
-                    androidx.compose.material3.TextButton(onClick = { showUpdateDialog = false }) {
-                        Text("Daha Sonra", color = Color.Gray)
+                    MaterialTextButton(onClick = { showStreamDialog = false }) {
+                        androidx.tv.material3.Text("İptal", color = Color.Gray)
                     }
                 },
                 containerColor = Color(0xFF0F172A),
@@ -337,151 +338,14 @@ fun MainScreen() {
     }
 }
 
-private fun isNewerVersion(current: String, latest: String): Boolean {
-    try {
-        // Robust parsing: remove everything except numbers and dots, then split
-        val currParts = current.filter { it.isDigit() || it == '.' }.split(".").filter { it.isNotEmpty() }.map { it.toInt() }
-        val lateParts = latest.filter { it.isDigit() || it == '.' }.split(".").filter { it.isNotEmpty() }.map { it.toInt() }
-        
-        val maxParts = maxOf(currParts.size, lateParts.size)
-        for (i in 0 until maxParts) {
-            val curr = if (i < currParts.size) currParts[i] else 0
-            val late = if (i < lateParts.size) lateParts[i] else 0
-            
-            if (late > curr) return true
-            if (late < curr) return false
-        }
-    } catch (e: Exception) {
-        Log.e("UpdateCheck", "Error comparing versions: current=$current, latest=$latest", e)
-    }
-    return false
-}
-
-private fun downloadAndInstallApk(context: Context, url: String, version: String) {
-    val destination = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "gunun-maclari-v$version.apk")
-    if (destination.exists()) destination.delete()
-
-    val request = DownloadManager.Request(Uri.parse(url))
-        .setTitle("Günün Maçları Güncelleniyor")
-        .setDescription("Yeni sürüm indiriliyor...")
-        .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-        .setDestinationUri(Uri.fromFile(destination))
-
-    val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-    val downloadId = manager.enqueue(request)
-
-    val onComplete = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) {
-            val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L)
-            if (id == downloadId) {
-                val query = DownloadManager.Query().setFilterById(downloadId)
-                val cursor = manager.query(query)
-                if (cursor.moveToFirst()) {
-                    val status = cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_STATUS))
-                    if (status == DownloadManager.STATUS_SUCCESSFUL) {
-                        val uri = manager.getUriForDownloadedFile(downloadId)
-                        if (uri != null) {
-                            installApk(context, uri)
-                        } else {
-                            Log.e("DownloadManager", "Downloaded file URI is null for downloadId: $downloadId")
-                        }
-                    } else {
-                        val reason = cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_REASON))
-                        Log.e("DownloadManager", "Download failed for downloadId: $downloadId, status: $status, reason: $reason")
-                    }
-                } else {
-                    Log.e("DownloadManager", "Cursor is empty for downloadId: $downloadId")
-                }
-                cursor.close()
-                context.unregisterReceiver(this)
-            }
-        }
-    }
-    context.registerReceiver(onComplete, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), Context.RECEIVER_EXPORTED)
-}
-
-private fun installApk(context: Context, downloadUri: Uri) {
-    try {
-        val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-        val query = DownloadManager.Query().setFilterByStatus(DownloadManager.STATUS_SUCCESSFUL)
-        val cursor = manager.query(query)
-        
-        var apkFile: File? = null
-        if (cursor.moveToFirst()) {
-            do {
-                val uriStr = cursor.getString(cursor.getColumnIndex(DownloadManager.COLUMN_LOCAL_URI))
-                if (uriStr != null && uriStr.contains("gunun-maclari")) {
-                    val fileUri = Uri.parse(uriStr)
-                    apkFile = File(fileUri.path ?: "")
-                    if (apkFile.exists()) break
-                }
-            } while (cursor.moveToNext())
-        }
-        cursor.close()
-
-        if (apkFile == null || !apkFile.exists()) {
-            // Fallback: search in download dir
-            val dir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
-            apkFile = dir?.listFiles()?.find { it.name.endsWith(".apk") }
-        }
-
-        if (apkFile != null && apkFile.exists()) {
-            val contentUri = androidx.core.content.FileProvider.getUriForFile(
-                context,
-                "${context.packageName}.fileprovider",
-                apkFile
-            )
-
-            val intent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(contentUri, "application/vnd.android.package-archive")
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            context.startActivity(intent)
-        }
-    } catch (e: Exception) {
-        Log.e("InstallApk", "Error installing APK", e)
-    }
-}
-
-@OptIn(ExperimentalTvMaterial3Api::class, androidx.compose.ui.ExperimentalComposeUiApi::class)
+@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-fun MatchRow(
-    title: String, 
-    matches: List<Match>, 
-    isFirstRow: Boolean,
-    onMatchSelected: (Match) -> Unit,
-    onScrollToHeader: () -> Unit
-) {
-    val firstItemFocusRequester = remember { FocusRequester() }
-    
+fun MatchRow(title: String, matches: List<Match>, isFirstRow: Boolean, onMatchSelected: (Match) -> Unit, onScrollToHeader: () -> Unit) {
     Column {
-        Text(
-            text = title, 
-            style = MaterialTheme.typography.headlineSmall, 
-            color = Color(0xFF94A3B8), 
-            modifier = Modifier.padding(bottom = 20.dp),
-            fontWeight = FontWeight.Bold
-        )
-        TvLazyRow(
-            horizontalArrangement = Arrangement.spacedBy(32.dp),
-            contentPadding = PaddingValues(horizontal = 48.dp, vertical = 20.dp),
-            pivotOffsets = PivotOffsets(parentFraction = 0.5f),
-            modifier = Modifier
-                .fillMaxWidth()
-                .onPreviewKeyEvent { event ->
-                    if (isFirstRow && event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP) {
-                        if (event.type == KeyEventType.KeyDown) onScrollToHeader()
-                        return@onPreviewKeyEvent true
-                    }
-                    false
-                }
-        ) {
+        androidx.tv.material3.Text(text = title, style = androidx.tv.material3.MaterialTheme.typography.headlineSmall, color = Color(0xFF94A3B8), modifier = Modifier.padding(bottom = 20.dp), fontWeight = FontWeight.Bold)
+        TvLazyRow(horizontalArrangement = Arrangement.spacedBy(32.dp), contentPadding = PaddingValues(horizontal = 48.dp, vertical = 20.dp), pivotOffsets = PivotOffsets(0.5f)) {
             items(matches, key = { it.id }) { match ->
-                MatchCard(
-                    match = match, 
-                    onClick = { onMatchSelected(match) }
-                )
+                MatchCard(match = match, onClick = { onMatchSelected(match) })
             }
         }
     }
@@ -489,143 +353,45 @@ fun MatchRow(
 
 @OptIn(ExperimentalTvMaterial3Api::class, ExperimentalGlideComposeApi::class)
 @Composable
-fun MatchCard(match: Match, onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun MatchCard(match: Match, onClick: () -> Unit) {
     val channels = remember(match.channel) {
-        match.channel.split(",").map { it.trim() }
-            .filter { ChannelManager.findStreams(it).isNotEmpty() }
-            .take(2)
+        match.channel.split(",").map { it.trim() }.filter { ChannelManager.findStreams(it).isNotEmpty() }.take(2)
     }
 
-    Surface(
+    androidx.tv.material3.Surface(
         onClick = onClick,
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.1f),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = Color(0xFF1E293B),
-            focusedContainerColor = Color(0xFF334155)
-        ),
-        border = ClickableSurfaceDefaults.border(
-            focusedBorder = Border(
-                border = BorderStroke(2.5.dp, Color(0xFF38BDF8)),
-                shape = RoundedCornerShape(12.dp)
-            )
-        ),
-        modifier = modifier
-            .width(260.dp)
-            .height(130.dp)
+        colors = ClickableSurfaceDefaults.colors(containerColor = Color(0xFF1E293B), focusedContainerColor = Color(0xFF334155)),
+        border = ClickableSurfaceDefaults.border(focusedBorder = Border(border = BorderStroke(2.5.dp, Color(0xFF38BDF8)), shape = RoundedCornerShape(12.dp))),
+        modifier = Modifier.width(260.dp).height(130.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxSize().padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Home Team
+        Row(modifier = Modifier.fillMaxSize().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
-                Box(
-                    modifier = Modifier
-                        .size(50.dp)
-                        .background(Color(0xFF262F3F), RoundedCornerShape(12.dp))
-                        .padding(6.dp)
-                ) {
-                    GlideImage(
-                        model = match.homeLogoUrl,
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Fit
-                    ) {
-                        it.override(100, 100) // Lower resolution for TV GPU
-                          .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
-                          .dontAnimate()
-                    }
+                Box(modifier = Modifier.size(50.dp).background(Color(0xFF262F3F), RoundedCornerShape(12.dp)).padding(6.dp)) {
+                    GlideImage(model = match.homeLogoUrl, contentDescription = null, modifier = Modifier.fillMaxSize())
                 }
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = match.homeTeam,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Color.White,
-                    maxLines = 1,
-                    textAlign = TextAlign.Center,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 11.sp
-                )
+                Spacer(modifier = Modifier.height(4.dp))
+                androidx.tv.material3.Text(text = match.homeTeam, color = Color.White, maxLines = 1, textAlign = TextAlign.Center, fontSize = 11.sp, fontWeight = FontWeight.Bold)
             }
-
-            // VS & Info
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1.3f)) {
-                Box(
-                    modifier = Modifier
-                        .background(Color(0xFF0F172A), RoundedCornerShape(8.dp))
-                        .padding(horizontal = 10.dp, vertical = 4.dp)
-                ) {
-                    Text(
-                        text = match.time,
-                        style = MaterialTheme.typography.titleLarge,
-                        color = Color(0xFF38BDF8),
-                        fontWeight = FontWeight.Black,
-                        fontSize = 18.sp
-                    )
-                }
-                
-                Spacer(modifier = Modifier.height(6.dp))
-                
-                Text(
-                    text = "VS", 
-                    color = Color(0xFF64748B), 
-                    style = MaterialTheme.typography.labelSmall, 
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 9.sp
-                )
-                
-                Spacer(modifier = Modifier.height(10.dp))
-                
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                androidx.tv.material3.Text(text = match.time, style = androidx.tv.material3.MaterialTheme.typography.titleLarge, color = Color(0xFF38BDF8), fontWeight = FontWeight.Black)
+                androidx.tv.material3.Text(text = "VS", color = Color(0xFF64748B), fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(8.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     channels.forEach { channelName ->
-                        Box(
-                            modifier = Modifier
-                                .background(Color(0xFF262F3F), RoundedCornerShape(4.dp))
-                                .padding(horizontal = 6.dp, vertical = 3.dp)
-                        ) {
-                            Text(
-                                text = channelName.uppercase(),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = Color(0xFF94A3B8),
-                                maxLines = 1,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 8.sp
-                            )
+                        Box(modifier = Modifier.background(Color(0xFF0F172A), RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 2.dp)) {
+                            androidx.tv.material3.Text(text = channelName.uppercase(), style = androidx.tv.material3.MaterialTheme.typography.labelSmall, color = Color(0xFF94A3B8), maxLines = 1, fontWeight = FontWeight.Black, fontSize = 8.sp)
                         }
                     }
                 }
             }
-
-            // Away Team
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
-                Box(
-                    modifier = Modifier
-                        .size(50.dp)
-                        .background(Color(0xFF262F3F), RoundedCornerShape(12.dp))
-                        .padding(6.dp)
-                ) {
-                    GlideImage(
-                        model = match.awayLogoUrl,
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Fit
-                    ) {
-                        it.override(100, 100)
-                          .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
-                          .dontAnimate()
-                    }
+                Box(modifier = Modifier.size(50.dp).background(Color(0xFF262F3F), RoundedCornerShape(12.dp)).padding(6.dp)) {
+                    GlideImage(model = match.awayLogoUrl, contentDescription = null, modifier = Modifier.fillMaxSize())
                 }
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = match.awayTeam,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Color.White,
-                    maxLines = 1,
-                    textAlign = TextAlign.Center,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 11.sp
-                )
+                Spacer(modifier = Modifier.height(4.dp))
+                androidx.tv.material3.Text(text = match.awayTeam, color = Color.White, maxLines = 1, textAlign = TextAlign.Center, fontSize = 11.sp, fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -633,30 +399,15 @@ fun MatchCard(match: Match, onClick: () -> Unit, modifier: Modifier = Modifier) 
 
 @Composable
 fun ShimmerMatchCard() {
-    Box(
-        modifier = Modifier
-            .width(270.dp)
-            .height(128.dp)
-            .background(Color(0xFF1E293B), RoundedCornerShape(16.dp))
-    )
+    Box(modifier = Modifier.width(270.dp).height(128.dp).background(Color(0xFF1E293B), RoundedCornerShape(16.dp)))
 }
 
-@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun MainHeader() {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.padding(bottom = 8.dp)
-    ) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 8.dp)) {
         Box(modifier = Modifier.size(6.dp, 32.dp).background(Color(0xFF38BDF8), RoundedCornerShape(4.dp)))
         Spacer(modifier = Modifier.width(16.dp))
-        Text(
-            text = "GÜNÜN MAÇLARI",
-            style = MaterialTheme.typography.displaySmall,
-            color = Color.White,
-            fontWeight = FontWeight.Black,
-            letterSpacing = 1.sp
-        )
+        androidx.tv.material3.Text(text = "GÜNÜN MAÇLARI", style = androidx.tv.material3.MaterialTheme.typography.displaySmall, color = Color.White, fontWeight = FontWeight.Black)
     }
 }
 
@@ -666,18 +417,125 @@ private fun parseJsonResponse(jsonString: String): List<Match> {
         val arr = org.json.JSONArray(jsonString)
         for (i in 0 until arr.length()) {
             val obj = arr.getJSONObject(i)
-            list.add(Match(
-                id = i.toString(),
-                league = obj.optString("league"),
-                homeTeam = obj.optString("home"),
-                awayTeam = obj.optString("away"),
-                time = obj.optString("time"),
-                channel = obj.optString("channel"),
-                isLive = obj.optBoolean("isLive"),
-                homeLogo = obj.optString("homeLogo"),
-                awayLogo = obj.optString("awayLogo")
-            ))
+            list.add(Match(id = i.toString(), league = obj.optString("league"), homeTeam = obj.optString("home"), awayTeam = obj.optString("away"), time = obj.optString("time"), channel = obj.optString("channel"), isLive = obj.optBoolean("isLive"), homeLogo = obj.optString("homeLogo"), awayLogo = obj.optString("awayLogo")))
         }
     } catch (e: Exception) {}
     return list
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalGlideComposeApi::class)
+@Composable
+fun ProfileSection(
+    userProfile: Map<String, Any>?,
+    isExpanded: Boolean,
+    onToggle: () -> Unit,
+    onLogout: () -> Unit,
+    onUpdateList: () -> Unit
+) {
+    val displayName = userProfile?.get("displayName") as? String ?: "Profil"
+    val photoUrl = userProfile?.get("photoUrl") as? String
+    val isPremium = userProfile?.get("isPremium") as? Boolean ?: false
+    
+    val focusRequester = remember { FocusRequester() }
+
+    // Menü açıldığında ilk butona odaklan
+    LaunchedEffect(isExpanded) {
+        if (isExpanded) {
+            focusRequester.requestFocus()
+        }
+    }
+
+    Column(horizontalAlignment = Alignment.End) {
+        androidx.tv.material3.Surface(
+            onClick = onToggle,
+            scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
+            colors = ClickableSurfaceDefaults.colors(
+                containerColor = Color(0xFF1E293B).copy(alpha = 0.8f),
+                focusedContainerColor = Color(0xFF334155)
+            ),
+            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(24.dp)),
+            border = ClickableSurfaceDefaults.border(
+                focusedBorder = Border(border = BorderStroke(2.dp, Color(0xFF38BDF8)), shape = RoundedCornerShape(24.dp))
+            ),
+            modifier = Modifier.padding(bottom = 8.dp)
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Box(modifier = Modifier.size(24.dp).background(Color(0xFF38BDF8).copy(0.1f), CircleShape)) {
+                    if (photoUrl != null) {
+                        GlideImage(model = photoUrl, contentDescription = null, modifier = Modifier.fillMaxSize().clip(CircleShape))
+                    }
+                }
+                androidx.tv.material3.Text(
+                    text = displayName,
+                    color = Color.White,
+                    style = androidx.tv.material3.MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+
+        if (isExpanded) {
+            Box(
+                modifier = Modifier
+                    .width(200.dp)
+                    .background(Color(0xFF0F172A), RoundedCornerShape(16.dp))
+                    .border(BorderStroke(1.dp, Color(0xFF1E293B)), RoundedCornerShape(16.dp))
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    androidx.tv.material3.Text(
+                        text = "ABONELİK DURUMU",
+                        style = androidx.tv.material3.MaterialTheme.typography.labelSmall,
+                        color = Color(0xFF64748B),
+                        fontSize = 9.sp
+                    )
+                    androidx.tv.material3.Text(
+                        text = if (isPremium) "Premium (Aktif)" else "Ücretsiz",
+                        color = if (isPremium) Color(0xFF22C55E) else Color(0xFFFACC15),
+                        style = androidx.tv.material3.MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp
+                    )
+                    
+                    Spacer(modifier = Modifier.height(12.dp))
+                    
+                    androidx.tv.material3.Button(
+                        onClick = onUpdateList,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(36.dp)
+                            .focusRequester(focusRequester),
+                        colors = ButtonDefaults.colors(containerColor = Color.Transparent, focusedContainerColor = Color.White.copy(0.1f)),
+                        scale = ButtonDefaults.scale(focusedScale = 1.0f)
+                    ) {
+                        androidx.tv.material3.Text("Liste Güncelle", color = Color.White, fontSize = 12.sp)
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    androidx.tv.material3.Button(
+                        onClick = onLogout,
+                        modifier = Modifier.fillMaxWidth().height(36.dp),
+                        colors = ButtonDefaults.colors(containerColor = Color.Transparent, focusedContainerColor = Color.Red.copy(0.1f)),
+                        scale = ButtonDefaults.scale(focusedScale = 1.0f)
+                    ) {
+                        androidx.tv.material3.Text("Çıkış Yap", color = Color(0xFFEF4444), fontSize = 12.sp)
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    androidx.tv.material3.Text(
+                        text = "Kapatmak için Geri yapın",
+                        style = androidx.tv.material3.MaterialTheme.typography.labelSmall,
+                        color = Color(0xFF475569),
+                        fontSize = 8.sp,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+        }
+    }
 }
